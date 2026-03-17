@@ -5,6 +5,7 @@ import { type ReactNode, useState } from "react";
 import { createConfig, http, WagmiProvider } from "wagmi";
 import { base } from "wagmi/chains";
 import { MiniAppProvider } from "./providers/MiniAppProvider";
+import { MiniGolfUserProvider } from "./providers/MiniGolfUserProvider";
 
 const config = createConfig({
 	chains: [base],
@@ -18,7 +19,9 @@ export function RootProvider({ children }: { children: ReactNode }) {
 	return (
 		<MiniAppProvider>
 			<WagmiProvider config={config}>
-				<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+				<QueryClientProvider client={queryClient}>
+					<MiniGolfUserProvider>{children}</MiniGolfUserProvider>
+				</QueryClientProvider>
 			</WagmiProvider>
 		</MiniAppProvider>
 	);
