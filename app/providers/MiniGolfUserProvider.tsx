@@ -39,17 +39,16 @@ export function MiniGolfUserProvider({ children }: { children: React.ReactNode }
 
 		const fid = context?.user?.fid ?? 0;
 		const displayName = context?.user?.displayName ?? "Guest Player";
-		const walletAddress = context?.wallet?.address;
 
-		const seededGradient = makeDeterministicGradient(fid || (walletAddress ? walletAddress.length : 1));
+		const seededGradient = makeDeterministicGradient(fid || 1);
 
 		let user: UserState = {
 			...base,
 			id: fid ? `fid-${fid}` : "guest-1",
 			name: displayName,
 			isGuest: !fid,
-			walletConnected: Boolean(walletAddress),
-			walletAddress: walletAddress ?? base.walletAddress,
+			walletConnected: false,
+			walletAddress: base.walletAddress,
 			avatarGradient: seededGradient,
 			purchasedLevelIds: [...base.purchasedLevelIds],
 		};
