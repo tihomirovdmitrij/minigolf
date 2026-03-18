@@ -29,6 +29,14 @@ type LeaderboardApiRow = {
 	bestStrokes: number;
 };
 
+type UserRunHistoryApiRow = {
+	id: string;
+	levelCode: string;
+	levelName: string;
+	strokes: number;
+	completedAt: string;
+};
+
 export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const rafRef = useRef<number | null>(null);
@@ -42,12 +50,16 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 	const [user, setUser] = useState<UserState>(initialUser ?? DEFAULT_USER);
 	const [txState, setTxState] = useState<"idle" | "pending" | "success">("idle");
 	const [txMessage, setTxMessage] = useState("");
-	const [leaderboardLevelCode, setLeaderboardLevelCode] = useState<string>(LEVELS[0]?.id ?? "");
 	const [leaderboardRows, setLeaderboardRows] = useState<LeaderboardApiRow[]>([]);
 	const [leaderboardStatus, setLeaderboardStatus] = useState<
 		"idle" | "loading" | "success" | "error"
 	>("idle");
 	const [leaderboardError, setLeaderboardError] = useState("");
+	const [historyRows, setHistoryRows] = useState<UserRunHistoryApiRow[]>([]);
+	const [historyStatus, setHistoryStatus] = useState<"idle" | "loading" | "success" | "error">(
+		"idle",
+	);
+	const [historyError, setHistoryError] = useState("");
 	const { address, isConnected, chainId } = useAccount();
 	const { connectAsync, connectors, isPending: isWalletConnecting } = useConnect();
 	const { data: walletClient } = useWalletClient();
@@ -264,7 +276,7 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 	]);
 
 	useEffect(() => {
-		if (tab !== "leaderboard" || !leaderboardLevelCode) {
+		if (tab !== "leaderboard") {
 			return;
 		}
 
@@ -275,7 +287,7 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 
 			try {
 				const response = await fetch(
-					`/api/leaderboard?levelCode=${encodeURIComponent(leaderboardLevelCode)}`,
+					`/api/leaderboard?levelCode=${encodeURIComponent(level.id)}`,
 				);
 				if (!response.ok) {
 					const errorText = await response.text();
@@ -305,13 +317,52 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 		return () => {
 			isCancelled = true;
 		};
-	}, [leaderboardLevelCode, tab]);
+	}, [level.id, tab]);
+
+	useEffect(() => {
+		if (tab !== "history") {
+			return;
+		}
+
+		let isCancelled = false;
+		const loadHistory = async () => {
+			setHistoryStatus("loading");
+			setHistoryError("");
+			try {
+				const response = await fetch(
+					`/api/levels/runs?userExternalId=${encodeURIComponent(user.id)}&limit=30`,
+				);
+				if (!response.ok) {
+					const errorText = await response.text();
+					throw new Error(errorText || "failed to fetch history");
+				}
+
+				const payload = (await response.json()) as { rows?: UserRunHistoryApiRow[] };
+				if (isCancelled) {
+					return;
+				}
+				setHistoryRows(Array.isArray(payload.rows) ? payload.rows : []);
+				setHistoryStatus("success");
+			} catch (error) {
+				if (isCancelled) {
+					return;
+				}
+				setHistoryStatus("error");
+				setHistoryRows([]);
+				setHistoryError(error instanceof Error ? error.message : "Unexpected history error");
+			}
+		};
+
+		void loadHistory();
+
+		return () => {
+			isCancelled = true;
+		};
+	}, [tab, user.id]);
 
 	const freeCount = FREE_LEVELS.length;
 	const currentGroup = levelIndex < freeCount ? "Free" : "Premium";
 	const bestForLevel = user.bestScoreByLevel[level.id];
-	const selectedLeaderboardLevel =
-		LEVELS.find((candidate) => candidate.id === leaderboardLevelCode) ?? LEVELS[0];
 
 	const header = useMemo(() => {
 		if (finished && levelIndex >= LEVELS.length - 1) return "✅ All levels complete";
@@ -627,12 +678,23 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 						Recent clears and how many strokes each run took.
 					</div>
 					<div className="mt-3 grid gap-2">
-						{user.completedRuns.length === 0 ? (
+						{historyStatus === "loading" && (
+							<div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-4 text-sm text-white/60">
+								Loading history...
+							</div>
+						)}
+						{historyStatus === "error" && (
+							<div className="rounded-2xl border border-rose-300/30 bg-rose-400/10 px-3 py-4 text-sm text-rose-100">
+								Failed to load history: {historyError || "unknown error"}
+							</div>
+						)}
+						{historyStatus === "success" && historyRows.length === 0 && (
 							<div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-4 text-sm text-white/60">
 								No completed runs yet.
 							</div>
-						) : (
-							user.completedRuns.map((run, index) => (
+						)}
+						{historyStatus === "success" &&
+							historyRows.map((run, index) => (
 								<div
 									key={run.id}
 									className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 flex items-center justify-between gap-3"
@@ -640,7 +702,7 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 									<div>
 										<div className="text-sm text-white/85">{run.levelName}</div>
 										<div className="text-[11px] text-white/45 mt-1">
-											Run #{user.completedRuns.length - index}
+											Run #{historyRows.length - index}
 										</div>
 									</div>
 									<div className="text-right">
@@ -648,36 +710,20 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 										<div className="text-sm">{run.strokes}</div>
 									</div>
 								</div>
-							))
-						)}
+							))}
 					</div>
 				</div>
 			)}
 
 			{tab === "leaderboard" && (
 				<div className="w-full max-w-[440px] rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] px-3 py-3">
-					<div className="flex items-center justify-between gap-2">
-						<div>
-							<div className="text-sm font-medium">Leaderboard</div>
-							<div className="text-[11px] text-white/55 mt-1">
-								Top 10 players by best result on selected level.
-							</div>
+					<div>
+						<div className="text-sm font-medium">Leaderboard</div>
+						<div className="text-[11px] text-white/55 mt-1">
+							Top 10 players by best result on current level.
 						</div>
-						<select
-							className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/80 max-w-[170px]"
-							value={leaderboardLevelCode}
-							onChange={(event) => setLeaderboardLevelCode(event.target.value)}
-						>
-							{LEVELS.map((lvl) => (
-								<option key={lvl.id} value={lvl.id}>
-									{lvl.name}
-								</option>
-							))}
-						</select>
 					</div>
-					<div className="mt-2 text-[11px] text-white/50">
-						Level: {selectedLeaderboardLevel?.name ?? "Unknown"}
-					</div>
+					<div className="mt-2 text-[11px] text-white/50">Level: {level.name}</div>
 					<div className="mt-3 grid gap-2">
 						{leaderboardStatus === "loading" && (
 							<div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-4 text-sm text-white/60">

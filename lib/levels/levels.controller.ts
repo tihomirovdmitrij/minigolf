@@ -2,7 +2,12 @@ import { type NextRequest, NextResponse } from "next/server";
 import { LEVEL_PRICE_USDC } from "../minigolf/level-data";
 import { PaymentVerificationError } from "../payments/payments.service";
 import { resolveEnvScope } from "../users/users.types";
-import { getLevelLeaderboard, recordLevelPurchase, recordLevelRun } from "./levels.service";
+import {
+	getLevelLeaderboard,
+	getUserRunHistory,
+	recordLevelPurchase,
+	recordLevelRun,
+} from "./levels.service";
 
 type PurchaseLevelPayload = {
 	userExternalId: string;
@@ -193,6 +198,32 @@ export async function getLeaderboard(request: NextRequest) {
 		if (error instanceof Error && error.message === "Unknown level") {
 			return NextResponse.json({ message: "Level not found" }, { status: 404 });
 		}
+		if (error instanceof Error) {
+			return NextResponse.json({ message: error.message }, { status: 500 });
+		}
+		throw error;
+	}
+}
+
+export async function getRunsHistory(request: NextRequest) {
+	const userExternalId = request.nextUrl.searchParams.get("userExternalId");
+	if (!userExternalId || userExternalId.trim().length === 0) {
+		return NextResponse.json({ message: "userExternalId is required" }, { status: 400 });
+	}
+
+	const limitRaw = request.nextUrl.searchParams.get("limit");
+	const parsedLimit = limitRaw == null ? 30 : Number(limitRaw);
+	const limit =
+		Number.isInteger(parsedLimit) && parsedLimit > 0 && parsedLimit <= 100 ? parsedLimit : 30;
+
+	try {
+		const envScope = resolveEnvScope();
+		const rows = await getUserRunHistory(envScope, userExternalId.trim(), limit);
+		return NextResponse.json({
+			success: true,
+			rows,
+		});
+	} catch (error) {
 		if (error instanceof Error) {
 			return NextResponse.json({ message: error.message }, { status: 500 });
 		}

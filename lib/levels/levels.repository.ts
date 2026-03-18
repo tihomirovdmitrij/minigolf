@@ -1,5 +1,5 @@
 import type { InferSelectModel } from "drizzle-orm";
-import { and, asc, eq, min } from "drizzle-orm";
+import { and, asc, desc, eq, min } from "drizzle-orm";
 import { getDb } from "../db/client";
 import {
 	miniGolfLevelPurchases,
@@ -43,6 +43,14 @@ export type LevelLeaderboardRow = {
 	externalId: string;
 	bestStrokes: number;
 	firstCompletedAt: Date;
+};
+
+export type UserRunHistoryRow = {
+	runId: number;
+	levelCode: string;
+	levelName: string;
+	strokes: number;
+	completedAt: Date;
 };
 
 export async function upsertMiniGolfLevels(levels: UpsertMiniGolfLevelInput[]): Promise<void> {
@@ -191,4 +199,34 @@ export async function findLevelLeaderboardByLevelCode(
 			bestStrokes: row.bestStrokes,
 			firstCompletedAt: row.firstCompletedAt,
 		}));
+}
+
+export async function findUserRunHistoryByExternalId(
+	envScope: EnvScope,
+	userExternalId: string,
+	limit: number,
+): Promise<UserRunHistoryRow[]> {
+	const db = getDb();
+	const rows = await db
+		.select({
+			runId: miniGolfLevelRuns.id,
+			levelCode: miniGolfLevels.levelCode,
+			levelName: miniGolfLevels.name,
+			strokes: miniGolfLevelRuns.strokes,
+			completedAt: miniGolfLevelRuns.completedAt,
+		})
+		.from(miniGolfLevelRuns)
+		.innerJoin(miniGolfUsers, eq(miniGolfUsers.id, miniGolfLevelRuns.userId))
+		.innerJoin(miniGolfLevels, eq(miniGolfLevels.id, miniGolfLevelRuns.levelId))
+		.where(
+			and(
+				eq(miniGolfLevelRuns.envScope, envScope),
+				eq(miniGolfUsers.envScope, envScope),
+				eq(miniGolfUsers.externalId, userExternalId),
+			),
+		)
+		.orderBy(desc(miniGolfLevelRuns.completedAt), desc(miniGolfLevelRuns.id))
+		.limit(limit);
+
+	return rows;
 }

@@ -9,6 +9,7 @@ import {
 	findLevelLeaderboardByLevelCode,
 	findLevelPurchaseByUserAndLevel,
 	findMiniGolfLevelByCode,
+	findUserRunHistoryByExternalId,
 	insertLevelPurchase,
 	insertLevelRun,
 	upsertMiniGolfLevels,
@@ -50,6 +51,14 @@ export type LevelLeaderboardResultRow = {
 	displayName: string;
 	externalId: string;
 	bestStrokes: number;
+};
+
+export type UserRunHistoryResultRow = {
+	id: string;
+	levelCode: string;
+	levelName: string;
+	strokes: number;
+	completedAt: string;
 };
 
 const DB_LEVELS = LEVELS.map((level) => ({
@@ -175,5 +184,20 @@ export async function getLevelLeaderboard(
 		displayName: row.displayName || row.externalId,
 		externalId: row.externalId,
 		bestStrokes: row.bestStrokes,
+	}));
+}
+
+export async function getUserRunHistory(
+	envScope: EnvScope,
+	userExternalId: string,
+	limit: number,
+): Promise<UserRunHistoryResultRow[]> {
+	const rows = await findUserRunHistoryByExternalId(envScope, userExternalId, limit);
+	return rows.map((row) => ({
+		id: String(row.runId),
+		levelCode: row.levelCode,
+		levelName: row.levelName,
+		strokes: row.strokes,
+		completedAt: row.completedAt.toISOString(),
 	}));
 }
