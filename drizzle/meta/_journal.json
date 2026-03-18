@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1773834476194,
+      "tag": "0000_round_weapon_omega",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1773836178721,
+      "tag": "0001_chubby_colleen_wing",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1773839177391,
+      "tag": "0002_fair_misty_knight",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1773842137180,
+      "tag": "0003_married_vivisector",
+      "breakpoints": true
+    }
+  ]
+}

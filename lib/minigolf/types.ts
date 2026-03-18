@@ -23,6 +23,7 @@ export type Level = {
 };
 
 export type CompletedRun = {
+	id: string;
 	levelId: string;
 	levelName: string;
 	strokes: number;
@@ -71,4 +72,3 @@ export const CFG = {
 	maxDt: 1 / 30,
 	substeps: 3,
 } as const;
-

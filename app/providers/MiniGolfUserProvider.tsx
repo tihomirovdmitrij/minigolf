@@ -1,15 +1,21 @@
 "use client";
 
-import { createContext, useContext, useMemo } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { useAccount } from "wagmi";
 
-import { useMiniApp } from "./MiniAppProvider";
-import type { UserState } from "../../lib/minigolf/types";
 import { DEFAULT_USER, FREE_LEVELS } from "../../lib/minigolf/level-data";
+import type { UserState } from "../../lib/minigolf/types";
+import { useMiniApp } from "./MiniAppProvider";
 
 const isTestMode =
 	typeof process !== "undefined" &&
 	typeof process.env !== "undefined" &&
 	process.env.NEXT_PUBLIC_TEST_MODE === "true";
+
+const isDevelopmentEnvironment =
+	typeof process !== "undefined" &&
+	typeof process.env !== "undefined" &&
+	process.env.NODE_ENV !== "production";
 
 type MiniGolfUserContextValue = {
 	user: UserState;
@@ -31,8 +37,66 @@ function makeDeterministicGradient(seed: number): string {
 	return `linear-gradient(135deg,hsl(${hue},70%,55%) 0%,hsl(${hue2},70%,45%) 100%)`;
 }
 
+function hashString(input: string): number {
+	let hash = 2166136261;
+	for (let i = 0; i < input.length; i += 1) {
+		hash ^= input.charCodeAt(i);
+		hash = Math.imul(hash, 16777619);
+	}
+	return Math.abs(hash >>> 0);
+}
+
+function getBrowserSeed(): number {
+	if (typeof window === "undefined") {
+		return 1;
+	}
+
+	const browserFingerprint = [
+		window.navigator.userAgent,
+		window.navigator.language,
+		window.navigator.platform,
+		window.navigator.hardwareConcurrency?.toString() ?? "",
+		window.screen.width.toString(),
+		window.screen.height.toString(),
+		window.screen.colorDepth.toString(),
+		window.devicePixelRatio.toString(),
+		Intl.DateTimeFormat().resolvedOptions().timeZone ?? "",
+	].join("|");
+
+	const hash = hashString(browserFingerprint);
+	return hash || 1;
+}
+
+function makeGeneratedDevUser(base: UserState, seed: number): UserState {
+	const userNumber = ((seed % 9000) + 1000).toString();
+	return {
+		...base,
+		id: `dev-${seed.toString(16)}`,
+		name: `Dev Player ${userNumber}`,
+		isGuest: false,
+		walletConnected: false,
+		walletAddress: base.walletAddress,
+		avatarGradient: makeDeterministicGradient(seed),
+		purchasedLevelIds: [...base.purchasedLevelIds],
+	};
+}
+
+function makeWalletDisplayName(address: string): string {
+	return `Wallet ${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
 export function MiniGolfUserProvider({ children }: { children: React.ReactNode }) {
 	const { context } = useMiniApp();
+	const { address, isConnected } = useAccount();
+	const [browserSeed, setBrowserSeed] = useState<number | null>(null);
+	const [lastSyncedDevUserId, setLastSyncedDevUserId] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (!isDevelopmentEnvironment) {
+			return;
+		}
+		setBrowserSeed(getBrowserSeed());
+	}, []);
 
 	const value = useMemo<MiniGolfUserContextValue>(() => {
 		const base = DEFAULT_USER;
@@ -53,7 +117,25 @@ export function MiniGolfUserProvider({ children }: { children: React.ReactNode }
 			purchasedLevelIds: [...base.purchasedLevelIds],
 		};
 
-		if (isTestMode) {
+		if (!fid && isDevelopmentEnvironment && browserSeed !== null) {
+			user = makeGeneratedDevUser(base, browserSeed);
+		}
+
+		if (!fid && isDevelopmentEnvironment && isConnected && address) {
+			const normalizedAddress = address.toLowerCase();
+			user = {
+				...base,
+				id: `wallet:${normalizedAddress}`,
+				name: makeWalletDisplayName(normalizedAddress),
+				isGuest: false,
+				walletConnected: true,
+				walletAddress: normalizedAddress,
+				avatarGradient: makeDeterministicGradient(hashString(normalizedAddress)),
+				purchasedLevelIds: [...base.purchasedLevelIds],
+			};
+		}
+
+		if (isDevelopmentEnvironment && isTestMode) {
 			user = {
 				...user,
 				usdcBalance: 100,
@@ -62,8 +144,66 @@ export function MiniGolfUserProvider({ children }: { children: React.ReactNode }
 		}
 
 		return { user };
-	}, [context]);
+	}, [address, browserSeed, context, isConnected]);
+	const currentFid = context?.user?.fid ?? 0;
+	const currentUser = value.user;
+
+	useEffect(() => {
+		if (!isDevelopmentEnvironment) {
+			return;
+		}
+		if (currentFid) {
+			return;
+		}
+		const isDevBrowserUser = currentUser.id.startsWith("dev-");
+		const isDevWalletUser = currentUser.id.startsWith("wallet:");
+		if (!isDevBrowserUser && !isDevWalletUser) {
+			return;
+		}
+		if (lastSyncedDevUserId === currentUser.id) {
+			return;
+		}
+
+		let isCancelled = false;
+
+		const syncDevUser = async () => {
+			try {
+				const response = await fetch("/api/users/dev", {
+					method: "POST",
+					headers: {
+						"content-type": "application/json",
+					},
+					body: JSON.stringify({
+						generatedId: currentUser.id,
+						displayName: currentUser.name,
+						walletAddress: isDevWalletUser ? currentUser.walletAddress : undefined,
+					}),
+				});
+				if (!response.ok) {
+					const responseText = await response.text();
+					console.warn("Failed to sync dev user", response.status, responseText);
+					return;
+				}
+				if (!isCancelled) {
+					setLastSyncedDevUserId(currentUser.id);
+				}
+			} catch (error) {
+				console.warn("Failed to sync dev user", error);
+			}
+		};
+
+		void syncDevUser();
+
+		return () => {
+			isCancelled = true;
+		};
+	}, [
+		currentFid,
+		currentUser.id,
+		currentUser.name,
+		currentUser.walletAddress,
+		lastSyncedDevUserId,
+	]);
 
 	return <MiniGolfUserContext.Provider value={value}>{children}</MiniGolfUserContext.Provider>;
 }
-

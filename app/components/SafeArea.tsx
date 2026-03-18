@@ -10,18 +10,14 @@ interface SafeAreaProps {
 
 export function SafeArea({ children, className }: SafeAreaProps) {
 	const { context, isReady } = useMiniApp();
-
-	// Only apply insets when running inside a mini app
-	if (!isReady || !context) {
-		return <div className={className}>{children}</div>;
-	}
-
-	const insets = context.client?.safeAreaInsets;
+	const insets = isReady && context ? context.client?.safeAreaInsets : undefined;
 
 	return (
 		<div
 			className={className}
 			style={{
+				minHeight: "100dvh",
+				backgroundColor: "#070b10",
 				paddingTop: insets?.top ?? 0,
 				paddingBottom: insets?.bottom ?? 0,
 				paddingLeft: insets?.left ?? 0,

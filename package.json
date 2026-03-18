@@ -8,14 +8,18 @@
 		"start": "next start",
 		"lint": "biome check",
 		"lint:fix": "biome check --write",
-		"format": "biome format --write"
+		"format": "biome format --write",
+		"db:generate": "drizzle-kit generate",
+		"db:migrate": "drizzle-kit migrate"
 	},
 	"dependencies": {
 		"@farcaster/miniapp-sdk": "^0.2.0",
 		"@farcaster/miniapp-wagmi-connector": "^1.1.0",
 		"@farcaster/quick-auth": "^0.0.7",
 		"@tanstack/react-query": "^5.81.5",
+		"drizzle-orm": "^0.45.1",
 		"next": "16.1.7",
+		"postgres": "^3.4.8",
 		"react": "^19.0.0",
 		"react-dom": "^19.0.0",
 		"viem": "^2.31.6",
@@ -29,6 +33,7 @@
 		"@types/react": "^19",
 		"@types/react-dom": "^19",
 		"autoprefixer": "^10.4.27",
+		"drizzle-kit": "^0.31.10",
 		"postcss": "^8.5.8",
 		"tailwindcss": "^4.2.1",
 		"typescript": "^5"

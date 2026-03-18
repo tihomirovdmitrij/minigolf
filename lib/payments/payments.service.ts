@@ -1,0 +1,139 @@
+import {
+	decodeEventLog,
+	erc20Abi,
+	type Hash,
+	isAddress,
+	parseUnits,
+	type TransactionReceipt,
+} from "viem";
+import { getBaseMainnetTransaction, getBaseMainnetTransactionReceipt } from "./payments.repository";
+
+type VerifyUsdcTransferInput = {
+	txHash: string;
+	expectedFromAddress: string;
+	expectedAmountUsdc: number;
+};
+
+export type VerifiedUsdcTransfer = {
+	txHash: Hash;
+	fromAddress: string;
+	toAddress: string;
+	amountUsdc: number;
+	amountBaseUnits: bigint;
+	blockNumber: bigint;
+};
+
+export class PaymentVerificationError extends Error {
+	public readonly statusCode: number;
+
+	constructor(message: string, statusCode = 422) {
+		super(message);
+		this.name = "PaymentVerificationError";
+		this.statusCode = statusCode;
+	}
+}
+
+function requireEnvAddress(envName: string): string {
+	const value = process.env[envName];
+	if (!value || !isAddress(value)) {
+		throw new PaymentVerificationError(`${envName} is missing or invalid`, 500);
+	}
+	return value.toLowerCase();
+}
+
+function toUsdcBaseUnits(amountUsdc: number): bigint {
+	if (!Number.isFinite(amountUsdc) || amountUsdc <= 0) {
+		throw new PaymentVerificationError("Expected USDC amount must be positive", 500);
+	}
+	return parseUnits(amountUsdc.toFixed(6), 6);
+}
+
+function findMatchingUsdcTransferLog(
+	receipt: TransactionReceipt,
+	usdcContractAddress: string,
+	expectedFromAddress: string,
+	expectedToAddress: string,
+	expectedAmount: bigint,
+) {
+	return receipt.logs.find((log) => {
+		if (log.address.toLowerCase() !== usdcContractAddress) {
+			return false;
+		}
+
+		try {
+			const decoded = decodeEventLog({
+				abi: erc20Abi,
+				data: log.data,
+				topics: log.topics,
+				eventName: "Transfer",
+			});
+			const from = decoded.args.from?.toLowerCase();
+			const to = decoded.args.to?.toLowerCase();
+			const value = decoded.args.value;
+			return (
+				from === expectedFromAddress && to === expectedToAddress && value === expectedAmount
+			);
+		} catch {
+			return false;
+		}
+	});
+}
+
+export async function verifyUsdcTransferOnBaseMainnet(
+	input: VerifyUsdcTransferInput,
+): Promise<VerifiedUsdcTransfer> {
+	if (!input.txHash || !input.txHash.startsWith("0x")) {
+		throw new PaymentVerificationError("Invalid transaction hash");
+	}
+	if (!isAddress(input.expectedFromAddress)) {
+		throw new PaymentVerificationError("User wallet address is missing or invalid", 422);
+	}
+
+	const txHash = input.txHash as Hash;
+	const expectedFromAddress = input.expectedFromAddress.toLowerCase();
+	const expectedToAddress = requireEnvAddress("USDC_RECEIVER_WALLET");
+	const usdcContractAddress = requireEnvAddress("USDC_BASE_MAINNET_CONTRACT");
+	const expectedAmount = toUsdcBaseUnits(input.expectedAmountUsdc);
+
+	const transaction = await getBaseMainnetTransaction(txHash).catch(() => {
+		throw new PaymentVerificationError("Transaction not found on Base mainnet");
+	});
+	if (transaction.from.toLowerCase() !== expectedFromAddress) {
+		throw new PaymentVerificationError("Transaction sender does not match the player wallet");
+	}
+	if (!transaction.to || transaction.to.toLowerCase() !== usdcContractAddress) {
+		throw new PaymentVerificationError(
+			"Transaction target is not the configured USDC contract",
+		);
+	}
+
+	const receipt = await getBaseMainnetTransactionReceipt(txHash).catch(() => {
+		throw new PaymentVerificationError("Transaction receipt not found");
+	});
+
+	if (receipt.status !== "success") {
+		throw new PaymentVerificationError("Transaction failed on-chain");
+	}
+
+	const transferLog = findMatchingUsdcTransferLog(
+		receipt,
+		usdcContractAddress,
+		expectedFromAddress,
+		expectedToAddress,
+		expectedAmount,
+	);
+	if (!transferLog) {
+		throw new PaymentVerificationError(
+			"USDC transfer mismatch (from/to/amount do not match expected values)",
+		);
+	}
+
+	return {
+		txHash,
+		fromAddress: expectedFromAddress,
+		toAddress: expectedToAddress,
+		amountUsdc: input.expectedAmountUsdc,
+		amountBaseUnits: expectedAmount,
+		blockNumber: receipt.blockNumber,
+	};
+}

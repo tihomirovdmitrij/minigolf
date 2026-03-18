@@ -130,10 +130,9 @@ export function useCanvasAssets(canvasRef: React.RefObject<HTMLCanvasElement | n
 		const resize = () => {
 			const dpr = Math.max(1, Math.min(2.5, window.devicePixelRatio || 1));
 			dprRef.current = dpr;
-			const cssW = Math.min(420, Math.floor(window.innerWidth * 0.96));
-			const cssH = Math.min(720, Math.floor(window.innerHeight * 0.7));
-			c.style.width = `${cssW}px`;
-			c.style.height = `${cssH}px`;
+			const rect = c.getBoundingClientRect();
+			const cssW = Math.max(1, Math.floor(rect.width || WORLD.w));
+			const cssH = Math.max(1, Math.floor(rect.height || (WORLD.h * cssW) / WORLD.w));
 			c.width = Math.floor(cssW * dpr);
 			c.height = Math.floor(cssH * dpr);
 			const ctx = c.getContext("2d");

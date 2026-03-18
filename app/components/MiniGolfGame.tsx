@@ -1,33 +1,38 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-
-import { useCanvasAssets, getWorldPointer } from "../hooks/useCanvasAssets";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPublicClient, erc20Abi, http, isAddress, parseUnits } from "viem";
+import { base } from "viem/chains";
+import { useAccount, useConnect, useWalletClient } from "wagmi";
 import { createMiniGolfEngine, type MiniGolfRuntimeState } from "../../lib/minigolf/engine";
-import {
-	CFG,
-	type LeaderboardEntry,
-	type TabKey,
-	type UserState,
-} from "../../lib/minigolf/types";
 import {
 	DEFAULT_USER,
 	FREE_LEVELS,
-	LEADERBOARD_BY_LEVEL,
-	LEVELS,
 	LEVEL_PRICE_USDC,
+	LEVELS,
 	shortAddress,
 } from "../../lib/minigolf/level-data";
 import { hypot } from "../../lib/minigolf/math";
+import { CFG, type TabKey, type UserState, WORLD } from "../../lib/minigolf/types";
+import { getWorldPointer, useCanvasAssets } from "../hooks/useCanvasAssets";
 
 type MiniGolfGameProps = {
 	initialUser?: UserState;
 	onUserChange?: (next: UserState) => void;
 };
 
+type LeaderboardApiRow = {
+	rank: number;
+	userId: number;
+	displayName: string;
+	externalId: string;
+	bestStrokes: number;
+};
+
 export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const rafRef = useRef<number | null>(null);
+	const activePointerIdRef = useRef<number | null>(null);
 	const { assetsRef, dprRef } = useCanvasAssets(canvasRef);
 
 	const [tab, setTab] = useState<TabKey>("play");
@@ -37,9 +42,21 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 	const [user, setUser] = useState<UserState>(initialUser ?? DEFAULT_USER);
 	const [txState, setTxState] = useState<"idle" | "pending" | "success">("idle");
 	const [txMessage, setTxMessage] = useState("");
+	const [leaderboardLevelCode, setLeaderboardLevelCode] = useState<string>(LEVELS[0]?.id ?? "");
+	const [leaderboardRows, setLeaderboardRows] = useState<LeaderboardApiRow[]>([]);
+	const [leaderboardStatus, setLeaderboardStatus] = useState<
+		"idle" | "loading" | "success" | "error"
+	>("idle");
+	const [leaderboardError, setLeaderboardError] = useState("");
+	const { address, isConnected, chainId } = useAccount();
+	const { connectAsync, connectors, isPending: isWalletConnecting } = useConnect();
+	const { data: walletClient } = useWalletClient();
 
 	const level = LEVELS[levelIndex];
-	const levelNeedsPurchase = levelIndex >= FREE_LEVELS.length && !user.purchasedLevelIds.includes(level.id);
+	const levelNeedsPurchase =
+		levelIndex >= FREE_LEVELS.length && !user.purchasedLevelIds.includes(level.id);
+	const usdcContractAddress = process.env.NEXT_PUBLIC_USDC_BASE_MAINNET_CONTRACT;
+	const usdcReceiverWallet = process.env.NEXT_PUBLIC_USDC_RECEIVER_WALLET;
 
 	const stateRef = useRef<MiniGolfRuntimeState>({
 		ball: { x: level.ball.x, y: level.ball.y, vx: 0, vy: 0 },
@@ -68,7 +85,7 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 		s.lastT = 0;
 		setStrokes(0);
 		setFinished(false);
-	}, [level.ball.x, level.ball.y, levelIndex]);
+	}, [level.ball.x, level.ball.y]);
 
 	useEffect(() => {
 		const c = canvasRef.current;
@@ -76,7 +93,12 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 
 		const canShoot = () => {
 			const s = stateRef.current;
-			return !s.won && !levelNeedsPurchase && tab === "play" && hypot(s.ball.vx, s.ball.vy) < CFG.stopEps * 1.5;
+			return (
+				!s.won &&
+				!levelNeedsPurchase &&
+				tab === "play" &&
+				hypot(s.ball.vx, s.ball.vy) < CFG.stopEps * 1.5
+			);
 		};
 
 		const onDown = (ev: PointerEvent) => {
@@ -85,6 +107,10 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 			const p = getWorldPointer(ev, c);
 			const s = stateRef.current;
 			if (dist(p.x, p.y, s.ball.x, s.ball.y) <= CFG.ballR + 18) {
+				activePointerIdRef.current = ev.pointerId;
+				try {
+					c.setPointerCapture(ev.pointerId);
+				} catch {}
 				s.aiming = true;
 				s.aimFrom = { x: s.ball.x, y: s.ball.y };
 				s.aimTo = p;
@@ -93,6 +119,8 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 
 		const onMove = (ev: PointerEvent) => {
 			const s = stateRef.current;
+			if (activePointerIdRef.current != null && ev.pointerId !== activePointerIdRef.current)
+				return;
 			if (!s.aiming) return;
 			ev.preventDefault();
 			s.aimTo = getWorldPointer(ev, c);
@@ -100,9 +128,17 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 
 		const onUp = (ev: PointerEvent) => {
 			const s = stateRef.current;
+			if (activePointerIdRef.current != null && ev.pointerId !== activePointerIdRef.current)
+				return;
 			if (!s.aiming) return;
 			ev.preventDefault();
 			s.aiming = false;
+			activePointerIdRef.current = null;
+			try {
+				if (c.hasPointerCapture(ev.pointerId)) {
+					c.releasePointerCapture(ev.pointerId);
+				}
+			} catch {}
 			const dx = s.aimFrom.x - s.aimTo.x;
 			const dy = s.aimFrom.y - s.aimTo.y;
 			let vx = dx * CFG.powerScale;
@@ -117,16 +153,26 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 			s.ball.vy = vy;
 			setStrokes((x) => x + 1);
 		};
+		const onLostPointerCapture = () => {
+			const s = stateRef.current;
+			if (!s.aiming) return;
+			s.aiming = false;
+			activePointerIdRef.current = null;
+		};
 
 		c.addEventListener("pointerdown", onDown, { passive: false });
 		c.addEventListener("pointermove", onMove, { passive: false });
 		c.addEventListener("pointerup", onUp, { passive: false });
 		c.addEventListener("pointercancel", onUp, { passive: false });
+		c.addEventListener("pointerleave", onUp, { passive: false });
+		c.addEventListener("lostpointercapture", onLostPointerCapture);
 		return () => {
 			c.removeEventListener("pointerdown", onDown as EventListener);
 			c.removeEventListener("pointermove", onMove as EventListener);
 			c.removeEventListener("pointerup", onUp as EventListener);
 			c.removeEventListener("pointercancel", onUp as EventListener);
+			c.removeEventListener("pointerleave", onUp as EventListener);
+			c.removeEventListener("lostpointercapture", onLostPointerCapture as EventListener);
 		};
 	}, [levelNeedsPurchase, tab]);
 
@@ -137,9 +183,16 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 		if (!ctx) return;
 
 		const recordWin = () => {
+			const finalStrokes = Math.max(1, strokes);
+
 			setUser((prev) => {
+				const runPayload = {
+					userExternalId: prev.id,
+					userDisplayName: prev.name,
+					levelCode: level.id,
+					strokes: finalStrokes,
+				};
 				const best = prev.bestScoreByLevel[level.id];
-				const finalStrokes = Math.max(1, strokes);
 				const nextBest = best == null ? finalStrokes : Math.min(best, finalStrokes);
 				const next: UserState = {
 					...prev,
@@ -147,11 +200,27 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 					totalStrokes: prev.totalStrokes + finalStrokes,
 					bestScoreByLevel: { ...prev.bestScoreByLevel, [level.id]: nextBest },
 					completedRuns: [
-						{ levelId: level.id, levelName: level.name, strokes: finalStrokes },
+						{
+							id: `${level.id}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`,
+							levelId: level.id,
+							levelName: level.name,
+							strokes: finalStrokes,
+						},
 						...prev.completedRuns,
 					].slice(0, 30),
 				};
 				onUserChange?.(next);
+
+				void fetch("/api/levels/runs", {
+					method: "POST",
+					headers: {
+						"content-type": "application/json",
+					},
+					body: JSON.stringify(runPayload),
+				}).catch((error) => {
+					console.warn("Failed to record completed run", error);
+				});
+
 				return next;
 			});
 		};
@@ -182,44 +251,121 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 		return () => {
 			if (rafRef.current) cancelAnimationFrame(rafRef.current);
 		};
-	}, [assetsRef, dprRef, finished, level, levelIndex, levelNeedsPurchase, strokes, tab, onUserChange]);
+	}, [
+		assetsRef,
+		dprRef,
+		finished,
+		level,
+		levelIndex,
+		levelNeedsPurchase,
+		strokes,
+		tab,
+		onUserChange,
+	]);
+
+	useEffect(() => {
+		if (tab !== "leaderboard" || !leaderboardLevelCode) {
+			return;
+		}
+
+		let isCancelled = false;
+		const loadLeaderboard = async () => {
+			setLeaderboardStatus("loading");
+			setLeaderboardError("");
+
+			try {
+				const response = await fetch(
+					`/api/leaderboard?levelCode=${encodeURIComponent(leaderboardLevelCode)}`,
+				);
+				if (!response.ok) {
+					const errorText = await response.text();
+					throw new Error(errorText || "failed to fetch leaderboard");
+				}
+
+				const payload = (await response.json()) as { rows?: LeaderboardApiRow[] };
+				if (isCancelled) {
+					return;
+				}
+				setLeaderboardRows(Array.isArray(payload.rows) ? payload.rows : []);
+				setLeaderboardStatus("success");
+			} catch (error) {
+				if (isCancelled) {
+					return;
+				}
+				setLeaderboardStatus("error");
+				setLeaderboardRows([]);
+				setLeaderboardError(
+					error instanceof Error ? error.message : "Unexpected leaderboard error",
+				);
+			}
+		};
+
+		void loadLeaderboard();
+
+		return () => {
+			isCancelled = true;
+		};
+	}, [leaderboardLevelCode, tab]);
 
 	const freeCount = FREE_LEVELS.length;
 	const currentGroup = levelIndex < freeCount ? "Free" : "Premium";
 	const bestForLevel = user.bestScoreByLevel[level.id];
-	const leaderboardRows: LeaderboardEntry[] =
-		LEADERBOARD_BY_LEVEL[level.id] ??
-		Array.from({ length: 10 }, (_, i) => ({
-			rank: i + 1,
-			name: `Player ${i + 1}`,
-			wallet: `0x${String(i + 1).padStart(4, "0")}...demo`,
-			strokes: level.par + Math.min(i, 4),
-		}));
+	const selectedLeaderboardLevel =
+		LEVELS.find((candidate) => candidate.id === leaderboardLevelCode) ?? LEVELS[0];
 
 	const header = useMemo(() => {
 		if (finished && levelIndex >= LEVELS.length - 1) return "✅ All levels complete";
 		return `${currentGroup} · ${level.name} · Par ${level.par} · Strokes: ${strokes}`;
 	}, [currentGroup, finished, level.name, level.par, levelIndex, strokes]);
 
-	const connectWalletMock = () => {
-		setUser((prev) => {
-			const next: UserState = {
-				...prev,
-				isGuest: false,
-				walletConnected: true,
-				walletAddress: "0xA84cB3f87C1d8fB1aE7bC2D4F01a2dC77aB9f231",
-				name: "Diana Base Player",
-				avatarGradient: "linear-gradient(135deg,#60a5fa 0%,#1d4ed8 100%)",
-			};
-			onUserChange?.(next);
-			return next;
-		});
+	const connectWallet = async () => {
+		if (isConnected) {
+			return;
+		}
+		const connector = connectors.find((item) => item.id === "injected") ?? connectors[0];
+		if (!connector) {
+			setTxState("idle");
+			setTxMessage("No browser wallet connector found.");
+			return;
+		}
+		try {
+			await connectAsync({
+				connector,
+				chainId: base.id,
+			});
+		} catch (error) {
+			setTxState("idle");
+			setTxMessage(
+				`Wallet connection failed: ${error instanceof Error ? error.message : "unknown error"}`,
+			);
+		}
 	};
 
-	const purchaseLevelMock = (targetLevel: (typeof LEVELS)[number]) => {
-		if (!user.walletConnected) {
+	const purchaseLevelWithWallet = async (targetLevel: (typeof LEVELS)[number]) => {
+		const normalizedAddress = address?.toLowerCase();
+		if (!isConnected || !normalizedAddress) {
 			setTxState("idle");
 			setTxMessage("Connect wallet first to buy levels with USDC.");
+			return;
+		}
+		if (!walletClient) {
+			setTxState("idle");
+			setTxMessage("Wallet client is not ready yet. Try again.");
+			return;
+		}
+		if (chainId !== base.id) {
+			setTxState("idle");
+			setTxMessage("Switch wallet network to Base mainnet first.");
+			return;
+		}
+		if (!usdcContractAddress || !isAddress(usdcContractAddress)) {
+			setTxState("idle");
+			setTxMessage("USDC contract address is not configured.");
+			return;
+		}
+		if (!usdcReceiverWallet || !isAddress(usdcReceiverWallet)) {
+			setTxState("idle");
+			setTxMessage("USDC receiver wallet is not configured.");
 			return;
 		}
 		if (user.purchasedLevelIds.includes(targetLevel.id)) {
@@ -227,26 +373,77 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 			setTxMessage("Level already purchased.");
 			return;
 		}
-		if (user.usdcBalance < LEVEL_PRICE_USDC) {
-			setTxState("idle");
-			setTxMessage("Not enough USDC balance.");
-			return;
-		}
 		setTxState("pending");
-		setTxMessage(`Preparing USDC purchase for ${targetLevel.name}...`);
-		window.setTimeout(() => {
+		setTxMessage(`Sending USDC transfer for ${targetLevel.name}...`);
+
+		try {
+			const transferAmount = parseUnits(String(LEVEL_PRICE_USDC), 6);
+			const txHash = await walletClient.writeContract({
+				account: walletClient.account,
+				address: usdcContractAddress,
+				abi: erc20Abi,
+				functionName: "transfer",
+				args: [usdcReceiverWallet, transferAmount],
+				chain: base,
+			});
+			setTxMessage(`Waiting for on-chain confirmation: ${txHash}`);
+
+			const publicClient = createPublicClient({
+				chain: base,
+				transport: http(),
+			});
+			const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+			if (receipt.status !== "success") {
+				throw new Error("USDC transaction reverted on-chain");
+			}
+
+			const response = await fetch("/api/levels/purchase", {
+				method: "POST",
+				headers: {
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({
+					userExternalId: `wallet:${normalizedAddress}`,
+					userDisplayName: user.name,
+					levelCode: targetLevel.id,
+					txHash,
+					amountUsdc: LEVEL_PRICE_USDC,
+				}),
+			});
+
+			if (!response.ok) {
+				const errorText = await response.text();
+				setTxState("idle");
+				setTxMessage(`Purchase failed: ${errorText || "unexpected server error"}`);
+				return;
+			}
+
+			const payload = (await response.json()) as {
+				purchase?: { status?: "created" | "already_purchased"; txHash?: string };
+			};
+
 			setUser((prev) => {
+				if (prev.purchasedLevelIds.includes(targetLevel.id)) {
+					return prev;
+				}
 				const next: UserState = {
 					...prev,
-					usdcBalance: Number((prev.usdcBalance - LEVEL_PRICE_USDC).toFixed(2)),
 					purchasedLevelIds: [...prev.purchasedLevelIds, targetLevel.id],
 				};
 				onUserChange?.(next);
 				return next;
 			});
+
 			setTxState("success");
-			setTxMessage(`USDC payment confirmed. ${targetLevel.name} unlocked.`);
-		}, 1200);
+			setTxMessage(
+				`USDC payment confirmed (${payload.purchase?.status ?? "created"}). ${targetLevel.name} unlocked. Tx: ${payload.purchase?.txHash ?? txHash}`,
+			);
+		} catch (error) {
+			setTxState("idle");
+			setTxMessage(
+				`Purchase failed: ${error instanceof Error ? error.message : "unexpected client error"}`,
+			);
+		}
 	};
 
 	const resetRun = () => {
@@ -277,9 +474,9 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 			<div className="w-full max-w-[440px] rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] shadow-[0_24px_60px_rgba(0,0,0,0.42)] overflow-hidden backdrop-blur-sm">
 				<canvas
 					ref={canvasRef}
-					width={420}
-					height={720}
-					className="w-full h-[68vh] max-h-[720px] min-h-[500px] touch-none"
+					width={WORLD.w}
+					height={WORLD.h}
+					className="block w-full h-auto aspect-[9/16] touch-none"
 				/>
 			</div>
 
@@ -329,12 +526,14 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 				<div className="w-full max-w-[440px] rounded-2xl border border-emerald-400/20 bg-[linear-gradient(180deg,rgba(16,185,129,0.18),rgba(16,185,129,0.10))] px-4 py-3">
 					<div className="text-sm font-medium">Level locked</div>
 					<div className="text-xs text-white/70 mt-1">
-						Starting from level 5, each level is bought separately for {LEVEL_PRICE_USDC} USDC.
+						Starting from level 5, each level is bought separately for{" "}
+						{LEVEL_PRICE_USDC} USDC.
 					</div>
 					<button
 						className="mt-3 w-full px-3 py-2 rounded-xl bg-emerald-500 text-black text-sm font-medium"
 						type="button"
-						onClick={() => purchaseLevelMock(level)}
+						disabled={txState === "pending"}
+						onClick={() => purchaseLevelWithWallet(level)}
 					>
 						Buy this level for {LEVEL_PRICE_USDC} USDC
 					</button>
@@ -345,28 +544,37 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 				<div className="w-full max-w-[440px] rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] px-3 py-3">
 					<div className="text-sm font-medium">Levels</div>
 					<div className="text-[11px] text-white/55 mt-1">
-						Levels 1–4 are free. Starting from level 5, each level unlock costs 0.1 USDC.
+						Levels 1–4 are free. Starting from level 5, each level unlock costs 0.1
+						USDC.
 					</div>
 					<div className="mt-3 grid grid-cols-2 gap-2">
 						{LEVELS.map((lvl, idx) => {
-							const locked = idx >= FREE_LEVELS.length && !user.purchasedLevelIds.includes(lvl.id);
+							const locked =
+								idx >= FREE_LEVELS.length &&
+								!user.purchasedLevelIds.includes(lvl.id);
 							const active = idx === levelIndex;
 							const best = user.bestScoreByLevel[lvl.id];
 							return (
 								<div
 									key={lvl.id}
 									className={`rounded-2xl border px-3 py-3 ${
-										active ? "border-emerald-300 bg-emerald-400/10" : "border-white/10 bg-white/5"
+										active
+											? "border-emerald-300 bg-emerald-400/10"
+											: "border-white/10 bg-white/5"
 									}`}
 								>
 									<div className="text-xs text-white/80 flex items-center justify-between gap-2">
 										<span>{lvl.name}</span>
-										<span>{locked ? "🔒" : idx >= FREE_LEVELS.length ? "◦" : "•"}</span>
+										<span>
+											{locked ? "🔒" : idx >= FREE_LEVELS.length ? "◦" : "•"}
+										</span>
 									</div>
 									<div className="text-[11px] text-white/50 mt-1">
 										Par {lvl.par} · {lvl.surfaces[0]?.kind}
 									</div>
-									<div className="text-[11px] text-white/40 mt-1">Best: {best ?? "—"}</div>
+									<div className="text-[11px] text-white/40 mt-1">
+										Best: {best ?? "—"}
+									</div>
 									<div className="mt-3 flex gap-2">
 										<button
 											className="flex-1 px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-xs disabled:opacity-50"
@@ -384,7 +592,8 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 											<button
 												className="px-3 py-2 rounded-xl bg-white text-black text-xs font-medium"
 												type="button"
-												onClick={() => purchaseLevelMock(lvl)}
+												disabled={txState === "pending"}
+												onClick={() => purchaseLevelWithWallet(lvl)}
 											>
 												Buy 0.1
 											</button>
@@ -425,7 +634,7 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 						) : (
 							user.completedRuns.map((run, index) => (
 								<div
-									key={`${run.levelId}-${index}`}
+									key={run.id}
 									className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 flex items-center justify-between gap-3"
 								>
 									<div>
@@ -451,34 +660,67 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 						<div>
 							<div className="text-sm font-medium">Leaderboard</div>
 							<div className="text-[11px] text-white/55 mt-1">
-								Top 10 players on the current level by number of strokes.
+								Top 10 players by best result on selected level.
 							</div>
 						</div>
-						<div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/80">
-							{level.name}
-						</div>
+						<select
+							className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/80 max-w-[170px]"
+							value={leaderboardLevelCode}
+							onChange={(event) => setLeaderboardLevelCode(event.target.value)}
+						>
+							{LEVELS.map((lvl) => (
+								<option key={lvl.id} value={lvl.id}>
+									{lvl.name}
+								</option>
+							))}
+						</select>
+					</div>
+					<div className="mt-2 text-[11px] text-white/50">
+						Level: {selectedLeaderboardLevel?.name ?? "Unknown"}
 					</div>
 					<div className="mt-3 grid gap-2">
-						{leaderboardRows.map((row) => (
-							<div
-								key={row.rank}
-								className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 flex items-center justify-between gap-3"
-							>
-								<div className="flex items-center gap-3 min-w-0">
-									<div className="w-8 h-8 rounded-full border border-white/10 bg-white/5 flex items-center justify-center text-xs text-white/80 shrink-0">
-										#{row.rank}
-									</div>
-									<div className="min-w-0">
-										<div className="text-sm text-white/85 truncate">{row.name}</div>
-										<div className="text-[11px] text-white/45 truncate">{row.wallet}</div>
-									</div>
-								</div>
-								<div className="text-right shrink-0">
-									<div className="text-[10px] text-white/50">Strokes</div>
-									<div className="text-sm">{row.strokes}</div>
-								</div>
+						{leaderboardStatus === "loading" && (
+							<div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-4 text-sm text-white/60">
+								Loading leaderboard...
 							</div>
-						))}
+						)}
+						{leaderboardStatus === "error" && (
+							<div className="rounded-2xl border border-rose-300/30 bg-rose-400/10 px-3 py-4 text-sm text-rose-100">
+								Failed to load leaderboard: {leaderboardError || "unknown error"}
+							</div>
+						)}
+						{leaderboardStatus === "success" && leaderboardRows.length === 0 && (
+							<div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-4 text-sm text-white/60">
+								No runs recorded for this level yet.
+							</div>
+						)}
+						{leaderboardStatus === "success" &&
+							leaderboardRows.map((row) => (
+								<div
+									key={row.userId}
+									className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 flex items-center justify-between gap-3"
+								>
+									<div className="flex items-center gap-3 min-w-0">
+										<div className="w-8 h-8 rounded-full border border-white/10 bg-white/5 flex items-center justify-center text-xs text-white/80 shrink-0">
+											#{row.rank}
+										</div>
+										<div className="min-w-0">
+											<div className="text-sm text-white/85 truncate">
+												{row.displayName}
+											</div>
+											<div className="text-[11px] text-white/45 truncate">
+												{row.externalId}
+											</div>
+										</div>
+									</div>
+									<div className="text-right shrink-0">
+										<div className="text-[10px] text-white/50">
+											Best strokes
+										</div>
+										<div className="text-sm">{row.bestStrokes}</div>
+									</div>
+								</div>
+							))}
 					</div>
 				</div>
 			)}
@@ -501,26 +743,35 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 						<button
 							className="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-xs"
 							type="button"
-							onClick={connectWalletMock}
+							disabled={isWalletConnecting || isConnected}
+							onClick={connectWallet}
 						>
-							{user.walletConnected ? "Connected" : "Connect"}
+							{isWalletConnecting
+								? "Connecting..."
+								: user.walletConnected
+									? "Connected"
+									: "Connect"}
 						</button>
 					</div>
 				</div>
 			)}
 
 			<div className="fixed bottom-3 left-1/2 -translate-x-1/2 w-[calc(100%-24px)] max-w-[440px] rounded-2xl border border-white/10 bg-[rgba(10,14,20,0.82)] backdrop-blur-md px-2 py-2 grid grid-cols-5 gap-2">
-				{([
-					["play", "Play"],
-					["levels", "Levels"],
-					["history", "History"],
-					["leaderboard", "Leaders"],
-					["profile", "Profile"],
-				] as [TabKey, string][]).map(([key, label]) => (
+				{(
+					[
+						["play", "Play"],
+						["levels", "Levels"],
+						["history", "History"],
+						["leaderboard", "Leaders"],
+						["profile", "Profile"],
+					] as [TabKey, string][]
+				).map(([key, label]) => (
 					<button
 						key={key}
 						className={`px-2 py-2 rounded-xl text-xs ${
-							tab === key ? "bg-emerald-500 text-black font-medium" : "bg-white/5 text-white/75 hover:bg-white/10"
+							tab === key
+								? "bg-emerald-500 text-black font-medium"
+								: "bg-white/5 text-white/75 hover:bg-white/10"
 						}`}
 						type="button"
 						onClick={() => setTab(key)}
@@ -536,4 +787,3 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 function dist(ax: number, ay: number, bx: number, by: number): number {
 	return Math.hypot(ax - bx, ay - by);
 }
-
