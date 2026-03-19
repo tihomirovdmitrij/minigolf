@@ -2,6 +2,11 @@ import type { InferSelectModel } from "drizzle-orm";
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../db/client";
 import { miniGolfUsers } from "../db/schema";
+import {
+	findLocalMiniGolfUserByEnvAndExternalId,
+	isDatabaseConfigured,
+	upsertLocalMiniGolfUser,
+} from "../dev/local-store";
 import type { UpsertMiniGolfUserInput } from "./users.types";
 
 export type MiniGolfUserRecord = InferSelectModel<typeof miniGolfUsers>;
@@ -9,6 +14,10 @@ export type MiniGolfUserRecord = InferSelectModel<typeof miniGolfUsers>;
 export async function upsertMiniGolfUser(
 	input: UpsertMiniGolfUserInput,
 ): Promise<MiniGolfUserRecord> {
+	if (!isDatabaseConfigured()) {
+		return upsertLocalMiniGolfUser(input);
+	}
+
 	const db = getDb();
 	const now = new Date();
 
@@ -46,6 +55,10 @@ export async function findMiniGolfUserByEnvAndExternalId(
 	envScope: MiniGolfUserRecord["envScope"],
 	externalId: string,
 ): Promise<MiniGolfUserRecord | null> {
+	if (!isDatabaseConfigured()) {
+		return findLocalMiniGolfUserByEnvAndExternalId(envScope, externalId);
+	}
+
 	const db = getDb();
 
 	const [row] = await db

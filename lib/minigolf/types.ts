@@ -2,7 +2,7 @@ export type Rect = { x: number; y: number; w: number; h: number };
 
 export type SurfaceKind = "grass" | "sand" | "concrete";
 
-export type TabKey = "play" | "levels" | "history" | "leaderboard" | "profile";
+export type TabKey = "play" | "leaderboard" | "profile";
 
 export type LevelTier = "free" | "premium";
 

@@ -17,7 +17,7 @@ export function SafeArea({ children, className }: SafeAreaProps) {
 			className={className}
 			style={{
 				minHeight: "100dvh",
-				backgroundColor: "#070b10",
+				backgroundColor: "#effcf3",
 				paddingTop: insets?.top ?? 0,
 				paddingBottom: insets?.bottom ?? 0,
 				paddingLeft: insets?.left ?? 0,

@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Source_Code_Pro } from "next/font/google";
 import { farcasterConfig } from "../farcaster.config";
 import { SafeArea } from "./components/SafeArea";
 import { Providers } from "./providers";
@@ -11,7 +10,7 @@ export async function generateMetadata(): Promise<Metadata> {
 		description: farcasterConfig.miniapp.description,
 		appleWebApp: {
 			capable: true,
-			statusBarStyle: "black-translucent",
+			statusBarStyle: "default",
 			title: farcasterConfig.miniapp.name,
 		},
 		other: {
@@ -31,20 +30,10 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export const viewport: Viewport = {
-	themeColor: "#070b10",
-	colorScheme: "dark",
+	themeColor: "#effcf3",
+	colorScheme: "light",
 	viewportFit: "cover",
 };
-
-const inter = Inter({
-	variable: "--font-inter",
-	subsets: ["latin"],
-});
-
-const sourceCodePro = Source_Code_Pro({
-	variable: "--font-source-code-pro",
-	subsets: ["latin"],
-});
 
 export default function RootLayout({
 	children,
@@ -52,11 +41,8 @@ export default function RootLayout({
 	children: React.ReactNode;
 }>) {
 	return (
-		<html lang="en" style={{ backgroundColor: "#070b10" }}>
-			<body
-				className={`${inter.variable} ${sourceCodePro.variable}`}
-				style={{ backgroundColor: "#070b10", minHeight: "100dvh" }}
-			>
+		<html lang="en" style={{ backgroundColor: "#effcf3" }}>
+			<body style={{ backgroundColor: "#effcf3", minHeight: "100dvh" }}>
 				<Providers>
 					<SafeArea>{children}</SafeArea>
 				</Providers>
