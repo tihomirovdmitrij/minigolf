@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPublicClient, erc20Abi, http, isAddress, parseUnits } from "viem";
 import { base } from "viem/chains";
 import { useAccount, useConnect, useWalletClient } from "wagmi";
@@ -37,12 +37,30 @@ type UserRunHistoryApiRow = {
 	completedAt: string;
 };
 
+const panelClass =
+	"rounded-[24px] border border-[color:var(--app-border)] bg-[color:var(--app-surface)] shadow-[0_20px_45px_rgba(111,221,150,0.16)] backdrop-blur-sm";
+
+const softCardClass =
+	"rounded-2xl border border-[color:var(--app-border)] bg-[color:var(--app-surface-strong)] shadow-[0_10px_24px_rgba(111,221,150,0.08)]";
+
+const secondaryButtonClass =
+	"min-h-10 px-3 py-2 rounded-2xl border border-[color:var(--app-border)] bg-[color:var(--app-surface-strong)] text-[color:var(--foreground)] hover:bg-[color:var(--app-surface-soft)] text-[13px] font-medium";
+
+const primaryButtonClass =
+	"min-h-10 px-3 py-2 rounded-2xl bg-[linear-gradient(180deg,var(--app-accent),var(--app-accent-strong))] text-[#123321] text-[13px] font-semibold shadow-[0_12px_24px_rgba(41,191,108,0.22)]";
+
 type PaymentConfigApiResponse = {
 	success: boolean;
 	config?: {
 		usdcContractAddress: string;
 		receiverWalletAddress: string;
 	};
+};
+
+type LeaderboardApiPayload = {
+	success?: boolean;
+	rows?: LeaderboardApiRow[];
+	message?: string;
 };
 
 export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
@@ -320,28 +338,34 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 			return;
 		}
 
-		let isCancelled = false;
+		let cancelled = false;
 		const loadLeaderboard = async () => {
 			setLeaderboardStatus("loading");
 			setLeaderboardError("");
-
 			try {
 				const response = await fetch(
 					`/api/leaderboard?levelCode=${encodeURIComponent(level.id)}`,
 				);
-				if (!response.ok) {
-					const errorText = await response.text();
-					throw new Error(errorText || "failed to fetch leaderboard");
-				}
-
-				const payload = (await response.json()) as { rows?: LeaderboardApiRow[] };
-				if (isCancelled) {
+				const payload = (await response
+					.json()
+					.catch(() => null)) as LeaderboardApiPayload | null;
+				if (cancelled) {
 					return;
 				}
-				setLeaderboardRows(Array.isArray(payload.rows) ? payload.rows : []);
+				if (!response.ok) {
+					const msg =
+						typeof payload?.message === "string" && payload.message.length > 0
+							? payload.message
+							: "Failed to load leaderboard";
+					throw new Error(msg);
+				}
+				if (!payload?.success || !Array.isArray(payload.rows)) {
+					throw new Error("Unexpected leaderboard response");
+				}
+				setLeaderboardRows(payload.rows);
 				setLeaderboardStatus("success");
 			} catch (error) {
-				if (isCancelled) {
+				if (cancelled) {
 					return;
 				}
 				setLeaderboardStatus("error");
@@ -353,15 +377,21 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 		};
 
 		void loadLeaderboard();
-
 		return () => {
-			isCancelled = true;
+			cancelled = true;
 		};
 	}, [level.id, tab]);
 
 	useEffect(() => {
-		if (tab !== "history") {
+		if ((tab !== "play" && tab !== "profile") || typeof window === "undefined") {
 			return;
+		}
+
+		let resizeFrameId: number | null = null;
+		if (tab === "play") {
+			resizeFrameId = window.requestAnimationFrame(() => {
+				window.dispatchEvent(new Event("resize"));
+			});
 		}
 
 		let isCancelled = false;
@@ -399,17 +429,11 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 
 		return () => {
 			isCancelled = true;
+			if (resizeFrameId !== null) {
+				window.cancelAnimationFrame(resizeFrameId);
+			}
 		};
 	}, [tab, user.id]);
-
-	const freeCount = FREE_LEVELS.length;
-	const currentGroup = levelIndex < freeCount ? "Free" : "Premium";
-	const bestForLevel = user.bestScoreByLevel[level.id];
-
-	const header = useMemo(() => {
-		if (finished && levelIndex >= LEVELS.length - 1) return "✅ All levels complete";
-		return `${currentGroup} · ${level.name} · Par ${level.par} · Strokes: ${strokes}`;
-	}, [currentGroup, finished, level.name, level.par, levelIndex, strokes]);
 
 	const connectWallet = async () => {
 		if (isConnected) {
@@ -565,317 +589,299 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 	};
 
 	return (
-		<div className="min-h-screen bg-[#070b10] text-slate-100 flex flex-col items-center px-3 pt-4 pb-24 gap-3">
-			<div className="w-full max-w-[440px] flex items-start justify-between gap-2">
-				<div className="flex-1 px-3 py-2 rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))]">
-					<div className="text-xs text-white/80">{header}</div>
-					<div className="text-[11px] text-white/50 mt-1">{level.theme}</div>
-				</div>
-				<button
-					className="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-xs"
-					type="button"
-					onClick={resetRun}
+		<div className="h-[100dvh] min-h-[100dvh] overflow-hidden text-[color:var(--foreground)] flex flex-col items-center px-3 pt-2 pb-3 gap-2">
+			<div className="w-full max-w-[440px] flex flex-1 min-h-0 flex-col">
+				<div
+					className={
+						tab === "play"
+							? "flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden overscroll-y-contain"
+							: "hidden"
+					}
 				>
-					Restart
-				</button>
-			</div>
-
-			<div className="w-full max-w-[440px] rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] shadow-[0_24px_60px_rgba(0,0,0,0.42)] overflow-hidden backdrop-blur-sm">
-				<canvas
-					ref={canvasRef}
-					width={WORLD.w}
-					height={WORLD.h}
-					className="block w-full h-auto aspect-[9/16] touch-none"
-				/>
-			</div>
-
-			<div className="w-full max-w-[440px] grid grid-cols-2 gap-2">
-				<button
-					className="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-xs"
-					type="button"
-					onClick={() => {
-						setFinished(false);
-						setLevelIndex((i) => Math.max(0, i - 1));
-					}}
-				>
-					Prev Level
-				</button>
-				<button
-					className="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-xs"
-					type="button"
-					onClick={() => {
-						setFinished(false);
-						setLevelIndex((i) => Math.min(LEVELS.length - 1, i + 1));
-					}}
-				>
-					Next Level
-				</button>
-			</div>
-
-			{tab === "play" && (
-				<div className="w-full max-w-[440px] grid grid-cols-3 gap-2">
-					<div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
-						<div className="text-[10px] text-white/50">Best</div>
-						<div className="text-sm mt-1">{bestForLevel ?? "—"}</div>
-					</div>
-					<div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
-						<div className="text-[10px] text-white/50">Surface</div>
-						<div className="text-sm mt-1">{level.surfaces[0]?.kind ?? "grass"}</div>
-					</div>
-					<div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
-						<div className="text-[10px] text-white/50">Unlock price</div>
-						<div className="text-sm mt-1">
-							{levelIndex >= FREE_LEVELS.length ? `${LEVEL_PRICE_USDC} USDC` : "Free"}
-						</div>
-					</div>
-				</div>
-			)}
-
-			{levelNeedsPurchase && (
-				<div className="w-full max-w-[440px] rounded-2xl border border-emerald-400/20 bg-[linear-gradient(180deg,rgba(16,185,129,0.18),rgba(16,185,129,0.10))] px-4 py-3">
-					<div className="text-sm font-medium">Level locked</div>
-					<div className="text-xs text-white/70 mt-1">
-						Starting from level 5, each level is bought separately for{" "}
-						{LEVEL_PRICE_USDC} USDC.
-					</div>
-					<button
-						className="mt-3 w-full px-3 py-2 rounded-xl bg-emerald-500 text-black text-sm font-medium"
-						type="button"
-						disabled={txState === "pending"}
-						onClick={() => purchaseLevelWithWallet(level)}
-					>
-						Buy this level for {LEVEL_PRICE_USDC} USDC
-					</button>
-				</div>
-			)}
-
-			{tab === "levels" && (
-				<div className="w-full max-w-[440px] rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] px-3 py-3">
-					<div className="text-sm font-medium">Levels</div>
-					<div className="text-[11px] text-white/55 mt-1">
-						Levels 1–4 are free. Starting from level 5, each level unlock costs 0.1
-						USDC.
-					</div>
-					<div className="mt-3 grid grid-cols-2 gap-2">
-						{LEVELS.map((lvl, idx) => {
-							const locked =
-								idx >= FREE_LEVELS.length &&
-								!user.purchasedLevelIds.includes(lvl.id);
-							const active = idx === levelIndex;
-							const best = user.bestScoreByLevel[lvl.id];
-							return (
-								<div
-									key={lvl.id}
-									className={`rounded-2xl border px-3 py-3 ${
-										active
-											? "border-emerald-300 bg-emerald-400/10"
-											: "border-white/10 bg-white/5"
-									}`}
-								>
-									<div className="text-xs text-white/80 flex items-center justify-between gap-2">
-										<span>{lvl.name}</span>
-										<span>
-											{locked ? "🔒" : idx >= FREE_LEVELS.length ? "◦" : "•"}
-										</span>
-									</div>
-									<div className="text-[11px] text-white/50 mt-1">
-										Par {lvl.par} · {lvl.surfaces[0]?.kind}
-									</div>
-									<div className="text-[11px] text-white/40 mt-1">
-										Best: {best ?? "—"}
-									</div>
-									<div className="mt-3 flex gap-2">
-										<button
-											className="flex-1 px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-xs disabled:opacity-50"
-											type="button"
-											disabled={locked}
-											onClick={() => {
-												if (locked) return;
-												setLevelIndex(idx);
-												setTab("play");
-											}}
-										>
-											{active ? "Current" : "Play"}
-										</button>
-										{locked && (
-											<button
-												className="px-3 py-2 rounded-xl bg-white text-black text-xs font-medium"
-												type="button"
-												disabled={txState === "pending"}
-												onClick={() => purchaseLevelWithWallet(lvl)}
-											>
-												Buy 0.1
-											</button>
-										)}
-									</div>
-								</div>
-							);
-						})}
-					</div>
-					<div className="mt-3 rounded-2xl border border-white/10 bg-black/20 px-3 py-3">
-						<div className="text-[11px] text-white/55">Transaction status</div>
-						<div
-							className={`text-sm mt-1 ${
-								txState === "success"
-									? "text-emerald-300"
-									: txState === "pending"
-										? "text-yellow-300"
-										: "text-white/80"
-							}`}
-						>
-							{txMessage || "No active transaction."}
-						</div>
-					</div>
-				</div>
-			)}
-
-			{tab === "history" && (
-				<div className="w-full max-w-[440px] rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] px-3 py-3">
-					<div className="text-sm font-medium">Completed levels</div>
-					<div className="text-[11px] text-white/55 mt-1">
-						Recent clears and how many strokes each run took.
-					</div>
-					<div className="mt-3 grid gap-2">
-						{historyStatus === "loading" && (
-							<div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-4 text-sm text-white/60">
-								Loading history...
-							</div>
-						)}
-						{historyStatus === "error" && (
-							<div className="rounded-2xl border border-rose-300/30 bg-rose-400/10 px-3 py-4 text-sm text-rose-100">
-								Failed to load history: {historyError || "unknown error"}
-							</div>
-						)}
-						{historyStatus === "success" && historyRows.length === 0 && (
-							<div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-4 text-sm text-white/60">
-								No completed runs yet.
-							</div>
-						)}
-						{historyStatus === "success" &&
-							historyRows.map((run, index) => (
-								<div
-									key={run.id}
-									className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 flex items-center justify-between gap-3"
-								>
-									<div>
-										<div className="text-sm text-white/85">{run.levelName}</div>
-										<div className="text-[11px] text-white/45 mt-1">
-											Run #{historyRows.length - index}
-										</div>
-									</div>
-									<div className="text-right">
-										<div className="text-[10px] text-white/50">Strokes</div>
-										<div className="text-sm">{run.strokes}</div>
-									</div>
-								</div>
-							))}
-					</div>
-				</div>
-			)}
-
-			{tab === "leaderboard" && (
-				<div className="w-full max-w-[440px] rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] px-3 py-3">
-					<div>
-						<div className="text-sm font-medium">Leaderboard</div>
-						<div className="text-[11px] text-white/55 mt-1">
-							Top 10 players by best result on current level.
-						</div>
-					</div>
-					<div className="mt-2 text-[11px] text-white/50">Level: {level.name}</div>
-					<div className="mt-3 grid gap-2">
-						{leaderboardStatus === "loading" && (
-							<div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-4 text-sm text-white/60">
-								Loading leaderboard...
-							</div>
-						)}
-						{leaderboardStatus === "error" && (
-							<div className="rounded-2xl border border-rose-300/30 bg-rose-400/10 px-3 py-4 text-sm text-rose-100">
-								Failed to load leaderboard: {leaderboardError || "unknown error"}
-							</div>
-						)}
-						{leaderboardStatus === "success" && leaderboardRows.length === 0 && (
-							<div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-4 text-sm text-white/60">
-								No runs recorded for this level yet.
-							</div>
-						)}
-						{leaderboardStatus === "success" &&
-							leaderboardRows.map((row) => (
-								<div
-									key={row.userId}
-									className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 flex items-center justify-between gap-3"
-								>
-									<div className="flex items-center gap-3 min-w-0">
-										<div className="w-8 h-8 rounded-full border border-white/10 bg-white/5 flex items-center justify-center text-xs text-white/80 shrink-0">
-											#{row.rank}
-										</div>
-										<div className="min-w-0">
-											<div className="text-sm text-white/85 truncate">
-												{row.displayName}
-											</div>
-											<div className="text-[11px] text-white/45 truncate">
-												{row.externalId}
-											</div>
-										</div>
-									</div>
-									<div className="text-right shrink-0">
-										<div className="text-[10px] text-white/50">
-											Best strokes
-										</div>
-										<div className="text-sm">{row.bestStrokes}</div>
-									</div>
-								</div>
-							))}
-					</div>
-				</div>
-			)}
-
-			{tab === "profile" && (
-				<div className="w-full max-w-[440px] rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] px-3 py-3">
-					<div className="flex items-center justify-between gap-3">
-						<div className="flex items-center gap-3 min-w-0">
-							<div
-								className="w-14 h-14 rounded-full border border-white/10 shrink-0"
-								style={{ background: user.avatarGradient }}
-							/>
+					<div className={`${panelClass} rounded-[28px] overflow-hidden shrink-0`}>
+						<div className="flex items-center justify-between gap-2 border-b border-[color:var(--app-border)] bg-[rgba(255,255,255,0.88)] px-3 py-2">
 							<div className="min-w-0">
-								<div className="text-sm font-medium truncate">{user.name}</div>
-								<div className="text-[11px] text-white/50 mt-1 truncate">
-									{shortAddress(user.walletAddress)}
+								<div className="text-[11px] uppercase tracking-[0.08em] font-medium text-[color:var(--app-muted)]">
+									Level {levelIndex + 1}
+								</div>
+								<div className="truncate text-[13px] font-semibold text-[color:var(--foreground)]">
+									{level.name}
 								</div>
 							</div>
+							<div className="shrink-0 rounded-2xl border border-[color:var(--app-border)] bg-[color:var(--app-surface-strong)] px-3 py-1.5 text-center">
+								<div className="text-[10px] uppercase tracking-[0.08em] font-medium text-[color:var(--app-muted)]">
+									Strokes
+								</div>
+								<div className="text-[13px] font-semibold text-[color:var(--foreground)]">
+									{strokes}
+								</div>
+							</div>
+							<button
+								className={`${secondaryButtonClass} min-h-8 shrink-0 px-3 py-1 text-[12px]`}
+								type="button"
+								onClick={resetRun}
+							>
+								Restart
+							</button>
 						</div>
+						<div className="w-full aspect-[9/16]">
+							<canvas
+								ref={canvasRef}
+								width={WORLD.w}
+								height={WORLD.h}
+								className="block h-full w-full touch-none"
+							/>
+						</div>
+					</div>
+
+					<div className="grid grid-cols-2 gap-2">
 						<button
-							className="px-3 py-2 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-xs"
+							className={`${secondaryButtonClass} min-h-9 py-1.5 text-[12px]`}
 							type="button"
-							disabled={isWalletConnecting || isConnected}
-							onClick={connectWallet}
+							onClick={() => {
+								setFinished(false);
+								setLevelIndex((i) => Math.max(0, i - 1));
+							}}
 						>
-							{isWalletConnecting
-								? "Connecting..."
-								: user.walletConnected
-									? "Connected"
-									: "Connect"}
+							Prev Level
+						</button>
+						<button
+							className={`${secondaryButtonClass} min-h-9 py-1.5 text-[12px]`}
+							type="button"
+							onClick={() => {
+								setFinished(false);
+								setLevelIndex((i) => Math.min(LEVELS.length - 1, i + 1));
+							}}
+						>
+							Next Level
 						</button>
 					</div>
-				</div>
-			)}
 
-			<div className="fixed bottom-3 left-1/2 -translate-x-1/2 w-[calc(100%-24px)] max-w-[440px] rounded-2xl border border-white/10 bg-[rgba(10,14,20,0.82)] backdrop-blur-md px-2 py-2 grid grid-cols-5 gap-2">
+					{levelNeedsPurchase && (
+						<div className="rounded-[22px] border border-[color:var(--app-border-strong)] bg-[linear-gradient(180deg,var(--app-accent-soft),rgba(255,255,255,0.96))] px-3 py-3 shadow-[0_12px_24px_rgba(111,221,150,0.16)]">
+							<div className="text-sm font-semibold text-[color:var(--foreground)]">
+								Level locked
+							</div>
+							<div className="mt-1 text-[12px] leading-snug text-[color:var(--app-muted)]">
+								Starting from level 5, each level is bought separately for{" "}
+								{LEVEL_PRICE_USDC} USDC.
+							</div>
+							<button
+								className={`${primaryButtonClass} mt-3 w-full`}
+								type="button"
+								disabled={txState === "pending"}
+								onClick={() => purchaseLevelWithWallet(level)}
+							>
+								Buy this level for {LEVEL_PRICE_USDC} USDC
+							</button>
+							{(txMessage || txState !== "idle") && (
+								<div
+									className={`mt-2 text-[12px] leading-4 ${
+										txState === "success"
+											? "text-emerald-800"
+											: txState === "pending"
+												? "text-amber-900"
+												: "text-[color:var(--app-muted)]"
+									}`}
+								>
+									{txMessage || "…"}
+								</div>
+							)}
+						</div>
+					)}
+				</div>
+
+				{tab === "leaderboard" && (
+					<div
+						className={`${panelClass} flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-contain px-3 py-3`}
+					>
+						<div>
+							<div className="text-base font-semibold text-[color:var(--foreground)]">
+								Leaderboard
+							</div>
+							<div className="text-sm text-[color:var(--app-muted)] mt-1">
+								Top players by best strokes on the level you have selected in Play.
+							</div>
+						</div>
+						<div className="mt-2 text-xs font-medium text-[color:var(--app-muted)]">
+							Level: {level.name}
+						</div>
+						<div className="mt-3 grid gap-2">
+							{leaderboardStatus === "loading" && (
+								<div
+									className={`${softCardClass} px-3 py-4 text-sm text-[color:var(--app-muted)]`}
+								>
+									Loading leaderboard...
+								</div>
+							)}
+							{leaderboardStatus === "error" && (
+								<div className="rounded-2xl border border-rose-300/40 bg-rose-50 px-3 py-4 text-sm text-rose-800">
+									Failed to load leaderboard:{" "}
+									{leaderboardError || "unknown error"}
+								</div>
+							)}
+							{leaderboardStatus === "success" && leaderboardRows.length === 0 && (
+								<div
+									className={`${softCardClass} px-3 py-4 text-sm text-[color:var(--app-muted)]`}
+								>
+									No runs recorded for this level yet.
+								</div>
+							)}
+							{leaderboardStatus === "success" &&
+								leaderboardRows.map((row) => (
+									<div
+										key={`${row.rank}-${row.userId}-${row.externalId}`}
+										className={`${softCardClass} px-3 py-3 flex items-center gap-3`}
+									>
+										<div className="w-9 h-9 rounded-full border border-[color:var(--app-border-strong)] bg-[color:var(--app-accent-soft)] flex items-center justify-center text-xs font-semibold text-[color:var(--foreground)] shrink-0">
+											#{row.rank}
+										</div>
+										<div className="min-w-0 flex-1">
+											<div className="text-sm font-medium text-[color:var(--foreground)] break-words [overflow-wrap:anywhere]">
+												{row.displayName}
+											</div>
+											{row.displayName.trim() !== row.externalId.trim() && (
+												<div className="text-xs text-[color:var(--app-muted)] mt-0.5 break-all [overflow-wrap:anywhere]">
+													{row.externalId}
+												</div>
+											)}
+										</div>
+										<div className="text-right shrink-0 pl-1 w-[4.25rem]">
+											<div className="text-[10px] uppercase tracking-[0.06em] font-medium text-[color:var(--app-muted)] leading-tight">
+												<span className="block">Best</span>
+												<span className="block">strokes</span>
+											</div>
+											<div className="text-lg font-semibold text-[color:var(--foreground)] tabular-nums mt-0.5">
+												{row.bestStrokes}
+											</div>
+										</div>
+									</div>
+								))}
+						</div>
+					</div>
+				)}
+
+				{tab === "profile" && (
+					<div
+						className={`${panelClass} flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-contain px-4 py-4`}
+					>
+						<div className="flex items-center justify-between gap-3">
+							<div className="flex items-center gap-3 min-w-0">
+								<div
+									className="w-14 h-14 rounded-full border border-[color:var(--app-border)] shrink-0 shadow-[0_8px_18px_rgba(111,221,150,0.12)]"
+									style={{ background: user.avatarGradient }}
+								/>
+								<div className="min-w-0">
+									<div className="text-base font-semibold text-[color:var(--foreground)] truncate">
+										{user.name}
+									</div>
+									<div className="text-xs text-[color:var(--app-muted)] mt-1 truncate">
+										{shortAddress(user.walletAddress)}
+									</div>
+								</div>
+							</div>
+							<button
+								className={
+									user.walletConnected ? secondaryButtonClass : primaryButtonClass
+								}
+								type="button"
+								disabled={isWalletConnecting || isConnected}
+								onClick={connectWallet}
+							>
+								{isWalletConnecting
+									? "Connecting..."
+									: user.walletConnected
+										? "Connected"
+										: "Connect"}
+							</button>
+						</div>
+						{(txMessage || txState !== "idle") && (
+							<div
+								className={`mt-4 text-[13px] ${
+									txState === "success"
+										? "text-emerald-800"
+										: txState === "pending"
+											? "text-amber-900"
+											: "text-[color:var(--app-muted)]"
+								}`}
+							>
+								<div className="text-[11px] uppercase tracking-[0.08em] font-medium text-[color:var(--app-muted)]">
+									Transaction
+								</div>
+								<div className="mt-1">{txMessage || "…"}</div>
+							</div>
+						)}
+						<div className="mt-6">
+							<div className="text-sm font-semibold text-[color:var(--foreground)]">
+								Recent runs
+							</div>
+							<div className="text-[12px] text-[color:var(--app-muted)] mt-1">
+								Recent clears from the server.
+							</div>
+							<div className="mt-3 grid gap-2">
+								{historyStatus === "loading" && (
+									<div
+										className={`${softCardClass} px-3 py-4 text-sm text-[color:var(--app-muted)]`}
+									>
+										Loading history...
+									</div>
+								)}
+								{historyStatus === "error" && (
+									<div className="rounded-2xl border border-rose-300/40 bg-rose-50 px-3 py-4 text-sm text-rose-800">
+										Failed to load history: {historyError || "unknown error"}
+									</div>
+								)}
+								{historyStatus === "success" && historyRows.length === 0 && (
+									<div
+										className={`${softCardClass} px-3 py-4 text-sm text-[color:var(--app-muted)]`}
+									>
+										No completed runs yet.
+									</div>
+								)}
+								{historyStatus === "success" &&
+									historyRows.map((run, index) => (
+										<div
+											key={run.id}
+											className={`${softCardClass} px-3 py-3 flex items-center justify-between gap-3`}
+										>
+											<div className="min-w-0">
+												<div className="text-sm font-medium text-[color:var(--foreground)] truncate">
+													{run.levelName}
+												</div>
+												<div className="text-[11px] text-[color:var(--app-muted)] mt-0.5">
+													Run #{historyRows.length - index}
+												</div>
+											</div>
+											<div className="text-right shrink-0">
+												<div className="text-[10px] uppercase tracking-[0.08em] font-medium text-[color:var(--app-muted)]">
+													Strokes
+												</div>
+												<div className="text-sm font-semibold text-[color:var(--foreground)]">
+													{run.strokes}
+												</div>
+											</div>
+										</div>
+									))}
+							</div>
+						</div>
+					</div>
+				)}
+			</div>
+
+			<div className="w-full max-w-[440px] shrink-0 rounded-[24px] border border-[color:var(--app-border)] bg-[rgba(255,255,255,0.92)] backdrop-blur-md px-2 py-2 grid grid-cols-3 gap-2 shadow-[0_12px_24px_rgba(111,221,150,0.16)]">
 				{(
 					[
 						["play", "Play"],
-						["levels", "Levels"],
-						["history", "History"],
 						["leaderboard", "Leaders"],
 						["profile", "Profile"],
 					] as [TabKey, string][]
 				).map(([key, label]) => (
 					<button
 						key={key}
-						className={`px-2 py-2 rounded-xl text-xs ${
+						className={`min-h-10 px-2 py-2 rounded-2xl text-[13px] ${
 							tab === key
-								? "bg-emerald-500 text-black font-medium"
-								: "bg-white/5 text-white/75 hover:bg-white/10"
+								? "bg-[linear-gradient(180deg,var(--app-accent),var(--app-accent-strong))] text-[#123321] font-semibold shadow-[0_10px_18px_rgba(41,191,108,0.2)]"
+								: "bg-[color:var(--app-surface-soft)] text-[color:var(--foreground)] hover:bg-white"
 						}`}
 						type="button"
 						onClick={() => setTab(key)}

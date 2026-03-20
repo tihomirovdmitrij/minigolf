@@ -7,6 +7,17 @@ import {
 	miniGolfLevels,
 	miniGolfUsers,
 } from "../db/schema";
+import {
+	findLocalLevelLeaderboardByLevelCode,
+	findLocalLevelPurchaseByUserAndLevel,
+	findLocalMiniGolfLevelByCode,
+	findLocalMiniGolfUserByEnvAndExternalId,
+	findLocalUserRunHistoryByExternalId,
+	insertLocalLevelPurchase,
+	insertLocalLevelRun,
+	isDatabaseConfigured,
+	upsertLocalMiniGolfLevels,
+} from "../dev/local-store";
 import type { EnvScope } from "../users/users.types";
 
 export type MiniGolfLevelRecord = InferSelectModel<typeof miniGolfLevels>;
@@ -57,6 +68,10 @@ export async function upsertMiniGolfLevels(levels: UpsertMiniGolfLevelInput[]): 
 	if (levels.length === 0) {
 		return;
 	}
+	if (!isDatabaseConfigured()) {
+		upsertLocalMiniGolfLevels(levels);
+		return;
+	}
 
 	const db = getDb();
 	const now = new Date();
@@ -79,6 +94,10 @@ export async function upsertMiniGolfLevels(levels: UpsertMiniGolfLevelInput[]): 
 export async function findMiniGolfLevelByCode(
 	levelCode: string,
 ): Promise<MiniGolfLevelRecord | null> {
+	if (!isDatabaseConfigured()) {
+		return findLocalMiniGolfLevelByCode(levelCode);
+	}
+
 	const db = getDb();
 	const [row] = await db
 		.select()
@@ -92,6 +111,10 @@ export async function findMiniGolfUserByEnvAndExternalId(
 	envScope: EnvScope,
 	externalId: string,
 ): Promise<MiniGolfUserRecord | null> {
+	if (!isDatabaseConfigured()) {
+		return findLocalMiniGolfUserByEnvAndExternalId(envScope, externalId);
+	}
+
 	const db = getDb();
 	const [row] = await db
 		.select()
@@ -106,6 +129,10 @@ export async function findLevelPurchaseByUserAndLevel(
 	userId: number,
 	levelId: number,
 ): Promise<MiniGolfLevelPurchaseRecord | null> {
+	if (!isDatabaseConfigured()) {
+		return findLocalLevelPurchaseByUserAndLevel(envScope, userId, levelId);
+	}
+
 	const db = getDb();
 	const [row] = await db
 		.select()
@@ -124,6 +151,10 @@ export async function findLevelPurchaseByUserAndLevel(
 export async function insertLevelPurchase(
 	input: RecordLevelPurchaseInput,
 ): Promise<MiniGolfLevelPurchaseRecord> {
+	if (!isDatabaseConfigured()) {
+		return insertLocalLevelPurchase(input);
+	}
+
 	const db = getDb();
 	const [row] = await db
 		.insert(miniGolfLevelPurchases)
@@ -143,6 +174,10 @@ export async function insertLevelPurchase(
 }
 
 export async function insertLevelRun(input: RecordLevelRunInput): Promise<MiniGolfLevelRunRecord> {
+	if (!isDatabaseConfigured()) {
+		return insertLocalLevelRun(input);
+	}
+
 	const db = getDb();
 	const [row] = await db
 		.insert(miniGolfLevelRuns)
@@ -164,6 +199,10 @@ export async function findLevelLeaderboardByLevelCode(
 	envScope: EnvScope,
 	levelCode: string,
 ): Promise<LevelLeaderboardRow[]> {
+	if (!isDatabaseConfigured()) {
+		return findLocalLevelLeaderboardByLevelCode(envScope, levelCode);
+	}
+
 	const db = getDb();
 	const bestStrokes = min(miniGolfLevelRuns.strokes).as("bestStrokes");
 	const firstCompletedAt = min(miniGolfLevelRuns.completedAt).as("firstCompletedAt");
@@ -206,6 +245,10 @@ export async function findUserRunHistoryByExternalId(
 	userExternalId: string,
 	limit: number,
 ): Promise<UserRunHistoryRow[]> {
+	if (!isDatabaseConfigured()) {
+		return findLocalUserRunHistoryByExternalId(envScope, userExternalId, limit);
+	}
+
 	const db = getDb();
 	const rows = await db
 		.select({

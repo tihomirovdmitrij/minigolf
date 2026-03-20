@@ -2,15 +2,18 @@
 
 @layer base {
 	:root {
-		--background: #070b10;
-		--foreground: #e2e8f0;
-	}
-
-	@media (prefers-color-scheme: dark) {
-		:root {
-			--background: #070b10;
-			--foreground: #e2e8f0;
-		}
+		--background: #effcf3;
+		/* Stronger body copy on light mint backgrounds (was too faint on some displays) */
+		--foreground: #0c1a12;
+		--app-surface: rgba(255, 255, 255, 0.92);
+		--app-surface-strong: #ffffff;
+		--app-surface-soft: #eef9f1;
+		--app-border: rgba(18, 48, 30, 0.14);
+		--app-border-strong: rgba(32, 140, 78, 0.35);
+		--app-muted: #1a3326;
+		--app-accent: #6fdd96;
+		--app-accent-strong: #29bf6c;
+		--app-accent-soft: #daf8e3;
 	}
 
 	html,
@@ -27,8 +30,10 @@
 	body {
 		min-height: 100dvh;
 		color: var(--foreground);
-		background: var(--background);
-		font-family: var(--font-inter), sans-serif;
+		background:
+			radial-gradient(circle at top, rgba(111, 221, 150, 0.32), transparent 34%),
+			linear-gradient(180deg, #f5fff7 0%, #effcf3 48%, #e4f8ea 100%);
+		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 		-webkit-font-smoothing: antialiased;
 		-moz-osx-font-smoothing: grayscale;
 	}
@@ -37,16 +42,9 @@
 		background-color: rgba(0, 0, 0, 0.05);
 		border-radius: 6px;
 		border: 1px solid rgba(0, 0, 0, 0.1);
-		font-family: var(--font-source-code-pro), monospace;
+		font-family: "SFMono-Regular", "SF Mono", Monaco, Consolas, "Liberation Mono", monospace;
 		font-size: 0.875rem;
 		padding: 0.25rem 0.5rem calc(0.25rem + 2px);
-	}
-
-	@media (prefers-color-scheme: dark) {
-		code {
-			background-color: rgba(255, 255, 255, 0.05);
-			border: 1px solid rgba(255, 255, 255, 0.1);
-		}
 	}
 
 	* {
@@ -58,11 +56,5 @@
 	a {
 		color: inherit;
 		text-decoration: none;
-	}
-
-	@media (prefers-color-scheme: dark) {
-		html {
-			color-scheme: dark;
-		}
 	}
 }
