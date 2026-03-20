@@ -86,12 +86,6 @@ export async function postPurchaseLevel(request: NextRequest) {
 	try {
 		const envScope = resolveEnvScope();
 		const amountUsdc = body.amountUsdc ?? LEVEL_PRICE_USDC;
-		if (envScope === "production") {
-			return NextResponse.json(
-				{ message: "Wallet purchase endpoint is disabled in production" },
-				{ status: 403 },
-			);
-		}
 		const result = await recordLevelPurchase({
 			envScope,
 			userExternalId: body.userExternalId.trim(),

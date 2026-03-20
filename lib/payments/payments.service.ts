@@ -14,6 +14,11 @@ type VerifyUsdcTransferInput = {
 	expectedAmountUsdc: number;
 };
 
+export type PublicPaymentConfig = {
+	usdcContractAddress: string;
+	receiverWalletAddress: string;
+};
+
 export type VerifiedUsdcTransfer = {
 	txHash: Hash;
 	fromAddress: string;
@@ -33,12 +38,27 @@ export class PaymentVerificationError extends Error {
 	}
 }
 
+function normalizeAndValidateTransactionHash(rawTxHash: string): Hash {
+	const normalized = rawTxHash.trim().toLowerCase();
+	if (!/^0x[a-f0-9]{64}$/.test(normalized)) {
+		throw new PaymentVerificationError("Invalid transaction hash");
+	}
+	return normalized as Hash;
+}
+
 function requireEnvAddress(envName: string): string {
 	const value = process.env[envName];
-	if (!value || !isAddress(value)) {
+	if (!value || !isAddress(value, { strict: false })) {
 		throw new PaymentVerificationError(`${envName} is missing or invalid`, 500);
 	}
 	return value.toLowerCase();
+}
+
+export function getPublicPaymentConfigFromEnv(): PublicPaymentConfig {
+	return {
+		usdcContractAddress: requireEnvAddress("USDC_BASE_MAINNET_CONTRACT"),
+		receiverWalletAddress: requireEnvAddress("USDC_RECEIVER_WALLET"),
+	};
 }
 
 function toUsdcBaseUnits(amountUsdc: number): bigint {
@@ -82,14 +102,11 @@ function findMatchingUsdcTransferLog(
 export async function verifyUsdcTransferOnBaseMainnet(
 	input: VerifyUsdcTransferInput,
 ): Promise<VerifiedUsdcTransfer> {
-	if (!input.txHash || !input.txHash.startsWith("0x")) {
-		throw new PaymentVerificationError("Invalid transaction hash");
-	}
 	if (!isAddress(input.expectedFromAddress)) {
 		throw new PaymentVerificationError("User wallet address is missing or invalid", 422);
 	}
 
-	const txHash = input.txHash as Hash;
+	const txHash = normalizeAndValidateTransactionHash(input.txHash);
 	const expectedFromAddress = input.expectedFromAddress.toLowerCase();
 	const expectedToAddress = requireEnvAddress("USDC_RECEIVER_WALLET");
 	const usdcContractAddress = requireEnvAddress("USDC_BASE_MAINNET_CONTRACT");

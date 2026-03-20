@@ -76,13 +76,6 @@ export async function syncGameLevelsToDatabase(): Promise<void> {
 export async function recordLevelPurchase(
 	input: RecordLevelPurchaseRequest,
 ): Promise<RecordLevelPurchaseResult> {
-	if (input.envScope === "production") {
-		throw new PaymentVerificationError(
-			"Wallet purchase endpoint is disabled in production",
-			403,
-		);
-	}
-
 	await syncGameLevelsToDatabase();
 
 	const level = await findMiniGolfLevelByCode(input.levelCode);

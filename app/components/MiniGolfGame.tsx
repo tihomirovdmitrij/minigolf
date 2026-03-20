@@ -37,6 +37,14 @@ type UserRunHistoryApiRow = {
 	completedAt: string;
 };
 
+type PaymentConfigApiResponse = {
+	success: boolean;
+	config?: {
+		usdcContractAddress: string;
+		receiverWalletAddress: string;
+	};
+};
+
 export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const rafRef = useRef<number | null>(null);
@@ -60,6 +68,10 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 		"idle",
 	);
 	const [historyError, setHistoryError] = useState("");
+	const [paymentConfig, setPaymentConfig] = useState<{
+		usdcContractAddress: string;
+		receiverWalletAddress: string;
+	} | null>(null);
 	const { address, isConnected, chainId } = useAccount();
 	const { connectAsync, connectors, isPending: isWalletConnecting } = useConnect();
 	const { data: walletClient } = useWalletClient();
@@ -67,8 +79,6 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 	const level = LEVELS[levelIndex];
 	const levelNeedsPurchase =
 		levelIndex >= FREE_LEVELS.length && !user.purchasedLevelIds.includes(level.id);
-	const usdcContractAddress = process.env.NEXT_PUBLIC_USDC_BASE_MAINNET_CONTRACT;
-	const usdcReceiverWallet = process.env.NEXT_PUBLIC_USDC_RECEIVER_WALLET;
 
 	const stateRef = useRef<MiniGolfRuntimeState>({
 		ball: { x: level.ball.x, y: level.ball.y, vx: 0, vy: 0 },
@@ -87,6 +97,36 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 			return next;
 		});
 	}, [initialUser, onUserChange]);
+
+	useEffect(() => {
+		let isCancelled = false;
+		const loadPaymentConfig = async () => {
+			try {
+				const response = await fetch("/api/payments/config");
+				if (!response.ok) {
+					const errorText = await response.text();
+					throw new Error(errorText || "failed to fetch payment config");
+				}
+				const payload = (await response.json()) as PaymentConfigApiResponse;
+				if (!payload.success || !payload.config) {
+					throw new Error("missing payment config in response");
+				}
+				if (!isCancelled) {
+					setPaymentConfig(payload.config);
+				}
+			} catch (error) {
+				if (!isCancelled) {
+					setTxMessage(
+						`Payment config unavailable: ${error instanceof Error ? error.message : "unknown error"}`,
+					);
+				}
+			}
+		};
+		void loadPaymentConfig();
+		return () => {
+			isCancelled = true;
+		};
+	}, []);
 
 	useEffect(() => {
 		const s = stateRef.current;
@@ -349,7 +389,9 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 				}
 				setHistoryStatus("error");
 				setHistoryRows([]);
-				setHistoryError(error instanceof Error ? error.message : "Unexpected history error");
+				setHistoryError(
+					error instanceof Error ? error.message : "Unexpected history error",
+				);
 			}
 		};
 
@@ -409,12 +451,17 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 			setTxMessage("Switch wallet network to Base mainnet first.");
 			return;
 		}
-		if (!usdcContractAddress || !isAddress(usdcContractAddress)) {
+		if (!paymentConfig) {
+			setTxState("idle");
+			setTxMessage("Payment config is not loaded yet.");
+			return;
+		}
+		if (!isAddress(paymentConfig.usdcContractAddress)) {
 			setTxState("idle");
 			setTxMessage("USDC contract address is not configured.");
 			return;
 		}
-		if (!usdcReceiverWallet || !isAddress(usdcReceiverWallet)) {
+		if (!isAddress(paymentConfig.receiverWalletAddress)) {
 			setTxState("idle");
 			setTxMessage("USDC receiver wallet is not configured.");
 			return;
@@ -431,10 +478,10 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 			const transferAmount = parseUnits(String(LEVEL_PRICE_USDC), 6);
 			const txHash = await walletClient.writeContract({
 				account: walletClient.account,
-				address: usdcContractAddress,
+				address: paymentConfig.usdcContractAddress,
 				abi: erc20Abi,
 				functionName: "transfer",
-				args: [usdcReceiverWallet, transferAmount],
+				args: [paymentConfig.receiverWalletAddress, transferAmount],
 				chain: base,
 			});
 			setTxMessage(`Waiting for on-chain confirmation: ${txHash}`);
@@ -462,16 +509,27 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 				}),
 			});
 
+			const responsePayload = (await response.json().catch(() => null)) as {
+				success?: boolean;
+				message?: string;
+				purchase?: { status?: "created" | "already_purchased"; txHash?: string };
+			} | null;
+			const responseMessage =
+				typeof responsePayload?.message === "string" && responsePayload.message.length > 0
+					? responsePayload.message
+					: "unexpected server error";
+
 			if (!response.ok) {
-				const errorText = await response.text();
 				setTxState("idle");
-				setTxMessage(`Purchase failed: ${errorText || "unexpected server error"}`);
+				if (response.status === 409) {
+					setTxMessage(`Purchase rejected: ${responseMessage}`);
+				} else if (response.status === 422) {
+					setTxMessage(`Purchase validation failed: ${responseMessage}`);
+				} else {
+					setTxMessage(`Purchase failed: ${responseMessage}`);
+				}
 				return;
 			}
-
-			const payload = (await response.json()) as {
-				purchase?: { status?: "created" | "already_purchased"; txHash?: string };
-			};
 
 			setUser((prev) => {
 				if (prev.purchasedLevelIds.includes(targetLevel.id)) {
@@ -487,7 +545,7 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 
 			setTxState("success");
 			setTxMessage(
-				`USDC payment confirmed (${payload.purchase?.status ?? "created"}). ${targetLevel.name} unlocked. Tx: ${payload.purchase?.txHash ?? txHash}`,
+				`USDC payment confirmed (${responsePayload?.purchase?.status ?? "created"}). ${targetLevel.name} unlocked. Tx: ${responsePayload?.purchase?.txHash ?? txHash}`,
 			);
 		} catch (error) {
 			setTxState("idle");
