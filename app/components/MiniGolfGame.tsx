@@ -43,6 +43,8 @@ const panelClass =
 const softCardClass =
 	"rounded-2xl border border-[color:var(--app-border)] bg-[color:var(--app-surface-strong)] shadow-[0_10px_24px_rgba(111,221,150,0.08)]";
 
+const leaderboardExternalIdTruncateInDev = process.env.NODE_ENV === "development";
+
 const secondaryButtonClass =
 	"min-h-10 px-3 py-2 rounded-2xl border border-[color:var(--app-border)] bg-[color:var(--app-surface-strong)] text-[color:var(--foreground)] hover:bg-[color:var(--app-surface-soft)] text-[13px] font-medium";
 
@@ -65,8 +67,10 @@ type LeaderboardApiPayload = {
 
 export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
+	const playScrollRef = useRef<HTMLDivElement | null>(null);
 	const rafRef = useRef<number | null>(null);
 	const activePointerIdRef = useRef<number | null>(null);
+	const scrollPointerRef = useRef<{ id: number; lastY: number } | null>(null);
 	const { assetsRef, dprRef } = useCanvasAssets(canvasRef);
 
 	const [tab, setTab] = useState<TabKey>("play");
@@ -171,23 +175,47 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 			);
 		};
 
+		const isTouchLikePointer = (ev: PointerEvent) => ev.pointerType !== "mouse";
+
+		// Radius within which a touch starts aiming; outside → manual scroll forwarding.
+		const aimGrabR = CFG.ballR + 18;
+
 		const onDown = (ev: PointerEvent) => {
-			ev.preventDefault();
-			if (!canShoot()) return;
+			const touchLike = isTouchLikePointer(ev);
+			if (!canShoot()) {
+				if (touchLike) {
+					scrollPointerRef.current = { id: ev.pointerId, lastY: ev.clientY };
+				} else {
+					ev.preventDefault();
+				}
+				return;
+			}
 			const p = getWorldPointer(ev, c);
 			const s = stateRef.current;
-			if (dist(p.x, p.y, s.ball.x, s.ball.y) <= CFG.ballR + 18) {
-				activePointerIdRef.current = ev.pointerId;
-				try {
-					c.setPointerCapture(ev.pointerId);
-				} catch {}
-				s.aiming = true;
-				s.aimFrom = { x: s.ball.x, y: s.ball.y };
-				s.aimTo = p;
+			const d = dist(p.x, p.y, s.ball.x, s.ball.y);
+			if (touchLike && d > aimGrabR) {
+				scrollPointerRef.current = { id: ev.pointerId, lastY: ev.clientY };
+				return;
 			}
+			ev.preventDefault();
+			activePointerIdRef.current = ev.pointerId;
+			try {
+				c.setPointerCapture(ev.pointerId);
+			} catch {}
+			s.aiming = true;
+			s.aimFrom = { x: s.ball.x, y: s.ball.y };
+			s.aimTo = p;
 		};
 
 		const onMove = (ev: PointerEvent) => {
+			// Forward manual scroll for out-of-aim touches.
+			const sp = scrollPointerRef.current;
+			if (sp && ev.pointerId === sp.id) {
+				const dy = ev.clientY - sp.lastY;
+				sp.lastY = ev.clientY;
+				playScrollRef.current?.scrollBy(0, -dy * 0.65);
+				return;
+			}
 			const s = stateRef.current;
 			if (activePointerIdRef.current != null && ev.pointerId !== activePointerIdRef.current)
 				return;
@@ -196,7 +224,33 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 			s.aimTo = getWorldPointer(ev, c);
 		};
 
-		const onUp = (ev: PointerEvent) => {
+		const releaseAimCapture = (ev: PointerEvent) => {
+			try {
+				if (c.hasPointerCapture(ev.pointerId)) {
+					c.releasePointerCapture(ev.pointerId);
+				}
+			} catch {}
+		};
+
+		const clearScrollPointer = (ev: PointerEvent) => {
+			if (scrollPointerRef.current?.id === ev.pointerId) {
+				scrollPointerRef.current = null;
+			}
+		};
+
+		const cancelAim = (ev: PointerEvent) => {
+			clearScrollPointer(ev);
+			const s = stateRef.current;
+			if (activePointerIdRef.current != null && ev.pointerId !== activePointerIdRef.current)
+				return;
+			if (!s.aiming) return;
+			s.aiming = false;
+			activePointerIdRef.current = null;
+			releaseAimCapture(ev);
+		};
+
+		const completeAimShot = (ev: PointerEvent) => {
+			clearScrollPointer(ev);
 			const s = stateRef.current;
 			if (activePointerIdRef.current != null && ev.pointerId !== activePointerIdRef.current)
 				return;
@@ -204,25 +258,29 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 			ev.preventDefault();
 			s.aiming = false;
 			activePointerIdRef.current = null;
-			try {
-				if (c.hasPointerCapture(ev.pointerId)) {
-					c.releasePointerCapture(ev.pointerId);
-				}
-			} catch {}
+			releaseAimCapture(ev);
 			const dx = s.aimFrom.x - s.aimTo.x;
 			const dy = s.aimFrom.y - s.aimTo.y;
 			let vx = dx * CFG.powerScale;
 			let vy = dy * CFG.powerScale;
-			const sp = hypot(vx, vy);
-			if (sp > CFG.maxShotPower) {
-				vx = (vx / sp) * CFG.maxShotPower;
-				vy = (vy / sp) * CFG.maxShotPower;
+			const speed = hypot(vx, vy);
+			if (speed > CFG.maxShotPower) {
+				vx = (vx / speed) * CFG.maxShotPower;
+				vy = (vy / speed) * CFG.maxShotPower;
 			}
 			if (hypot(vx, vy) < 0.25) return;
 			s.ball.vx = vx;
 			s.ball.vy = vy;
 			setStrokes((x) => x + 1);
 		};
+
+		const onPointerLeave = (ev: PointerEvent) => {
+			clearScrollPointer(ev);
+			if (ev.pointerType !== "mouse") return;
+			if (c.hasPointerCapture(ev.pointerId)) return;
+			completeAimShot(ev);
+		};
+
 		const onLostPointerCapture = () => {
 			const s = stateRef.current;
 			if (!s.aiming) return;
@@ -232,16 +290,17 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 
 		c.addEventListener("pointerdown", onDown, { passive: false });
 		c.addEventListener("pointermove", onMove, { passive: false });
-		c.addEventListener("pointerup", onUp, { passive: false });
-		c.addEventListener("pointercancel", onUp, { passive: false });
-		c.addEventListener("pointerleave", onUp, { passive: false });
+		c.addEventListener("pointerup", completeAimShot, { passive: false });
+		c.addEventListener("pointercancel", cancelAim, { passive: false });
+		c.addEventListener("pointerleave", onPointerLeave, { passive: false });
 		c.addEventListener("lostpointercapture", onLostPointerCapture);
 		return () => {
+			scrollPointerRef.current = null;
 			c.removeEventListener("pointerdown", onDown as EventListener);
 			c.removeEventListener("pointermove", onMove as EventListener);
-			c.removeEventListener("pointerup", onUp as EventListener);
-			c.removeEventListener("pointercancel", onUp as EventListener);
-			c.removeEventListener("pointerleave", onUp as EventListener);
+			c.removeEventListener("pointerup", completeAimShot as EventListener);
+			c.removeEventListener("pointercancel", cancelAim as EventListener);
+			c.removeEventListener("pointerleave", onPointerLeave as EventListener);
 			c.removeEventListener("lostpointercapture", onLostPointerCapture as EventListener);
 		};
 	}, [levelNeedsPurchase, tab]);
@@ -573,9 +632,13 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 			);
 		} catch (error) {
 			setTxState("idle");
-			setTxMessage(
-				`Purchase failed: ${error instanceof Error ? error.message : "unexpected client error"}`,
-			);
+			const rawMessage = error instanceof Error ? error.message : "unexpected client error";
+			const isUserRejected = rawMessage.includes("User rejected the request");
+			const userFacingMessage =
+				process.env.NODE_ENV === "development" || !isUserRejected
+					? rawMessage
+					: "User rejected the request.";
+			setTxMessage(`Purchase failed: ${userFacingMessage}`);
 		}
 	};
 
@@ -590,8 +653,9 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 
 	return (
 		<div className="h-[100dvh] min-h-[100dvh] overflow-hidden text-[color:var(--foreground)] flex flex-col items-center px-3 pt-2 pb-3 gap-2">
-			<div className="w-full max-w-[440px] flex flex-1 min-h-0 flex-col">
+			<div className="flex min-h-0 min-w-0 w-full max-w-[440px] flex-1 flex-col">
 				<div
+					ref={playScrollRef}
 					className={
 						tab === "play"
 							? "flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden overscroll-y-contain"
@@ -624,13 +688,45 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 								Restart
 							</button>
 						</div>
-						<div className="w-full aspect-[9/16]">
+						<div className="relative w-full aspect-[9/16]">
 							<canvas
 								ref={canvasRef}
 								width={WORLD.w}
 								height={WORLD.h}
 								className="block h-full w-full touch-none"
 							/>
+							{levelNeedsPurchase && (
+								<div className="absolute inset-x-2 bottom-2 z-10 rounded-[18px] border border-[color:var(--app-border-strong)] bg-[linear-gradient(180deg,rgba(230,255,238,0.97),rgba(255,255,255,0.95))] px-3 py-3 shadow-[0_12px_24px_rgba(111,221,150,0.2)] backdrop-blur-sm">
+									<div className="text-sm font-semibold text-[color:var(--foreground)]">
+										Level locked
+									</div>
+									<div className="mt-1 text-[12px] leading-snug text-[color:var(--app-muted)]">
+										Starting from level 5, each level is bought separately for{" "}
+										{LEVEL_PRICE_USDC} USDC.
+									</div>
+									<button
+										className={`${primaryButtonClass} mt-3 w-full`}
+										type="button"
+										disabled={txState === "pending"}
+										onClick={() => purchaseLevelWithWallet(level)}
+									>
+										Buy this level for {LEVEL_PRICE_USDC} USDC
+									</button>
+									{(txMessage || txState !== "idle") && (
+										<div
+											className={`mt-2 text-[12px] leading-4 ${
+												txState === "success"
+													? "text-emerald-800"
+													: txState === "pending"
+														? "text-amber-900"
+														: "text-[color:var(--app-muted)]"
+											}`}
+										>
+											{txMessage || "…"}
+										</div>
+									)}
+								</div>
+							)}
 						</div>
 					</div>
 
@@ -657,56 +753,24 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 						</button>
 					</div>
 
-					{levelNeedsPurchase && (
-						<div className="rounded-[22px] border border-[color:var(--app-border-strong)] bg-[linear-gradient(180deg,var(--app-accent-soft),rgba(255,255,255,0.96))] px-3 py-3 shadow-[0_12px_24px_rgba(111,221,150,0.16)]">
-							<div className="text-sm font-semibold text-[color:var(--foreground)]">
-								Level locked
-							</div>
-							<div className="mt-1 text-[12px] leading-snug text-[color:var(--app-muted)]">
-								Starting from level 5, each level is bought separately for{" "}
-								{LEVEL_PRICE_USDC} USDC.
-							</div>
-							<button
-								className={`${primaryButtonClass} mt-3 w-full`}
-								type="button"
-								disabled={txState === "pending"}
-								onClick={() => purchaseLevelWithWallet(level)}
-							>
-								Buy this level for {LEVEL_PRICE_USDC} USDC
-							</button>
-							{(txMessage || txState !== "idle") && (
-								<div
-									className={`mt-2 text-[12px] leading-4 ${
-										txState === "success"
-											? "text-emerald-800"
-											: txState === "pending"
-												? "text-amber-900"
-												: "text-[color:var(--app-muted)]"
-									}`}
-								>
-									{txMessage || "…"}
-								</div>
-							)}
-						</div>
-					)}
 				</div>
 
 				{tab === "leaderboard" && (
 					<div
-						className={`${panelClass} flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-contain px-3 py-3`}
+						className={`${panelClass} flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-y-contain px-3 py-3`}
 					>
-						<div>
+						<div className="min-w-0">
 							<div className="text-base font-semibold text-[color:var(--foreground)]">
 								Leaderboard
 							</div>
-							<div className="text-sm text-[color:var(--app-muted)] mt-1">
+							<div className="mt-1 break-words text-sm text-[color:var(--app-muted)] [overflow-wrap:anywhere]">
 								Top players by best strokes on the level you have selected in Play.
 							</div>
 						</div>
-						<div className="mt-2 text-xs font-medium text-[color:var(--app-muted)]">
+						<div className="mt-2 min-w-0 break-words text-xs font-medium text-[color:var(--app-muted)] [overflow-wrap:anywhere]">
 							Level: {level.name}
 						</div>
-						<div className="mt-3 grid gap-2">
+						<div className="mt-3 grid min-w-0 gap-2">
 							{leaderboardStatus === "loading" && (
 								<div
 									className={`${softCardClass} px-3 py-4 text-sm text-[color:var(--app-muted)]`}
@@ -731,27 +795,35 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 								leaderboardRows.map((row) => (
 									<div
 										key={`${row.rank}-${row.userId}-${row.externalId}`}
-										className={`${softCardClass} px-3 py-3 flex items-center gap-3`}
+										className={`${softCardClass} flex min-w-0 items-center justify-between gap-3 px-3 py-3`}
 									>
-										<div className="w-9 h-9 rounded-full border border-[color:var(--app-border-strong)] bg-[color:var(--app-accent-soft)] flex items-center justify-center text-xs font-semibold text-[color:var(--foreground)] shrink-0">
-											#{row.rank}
-										</div>
-										<div className="min-w-0 flex-1">
-											<div className="text-sm font-medium text-[color:var(--foreground)] break-words [overflow-wrap:anywhere]">
-												{row.displayName}
+										<div className="flex min-w-0 flex-1 items-center gap-3">
+											<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-border-strong)] bg-[color:var(--app-accent-soft)] text-xs text-[#1e5232]">
+												#{row.rank}
 											</div>
-											{row.displayName.trim() !== row.externalId.trim() && (
-												<div className="text-xs text-[color:var(--app-muted)] mt-0.5 break-all [overflow-wrap:anywhere]">
-													{row.externalId}
+											<div className="min-w-0 max-w-full flex-1">
+												<div className="break-words text-sm text-[#173122] [overflow-wrap:anywhere]">
+													{row.displayName}
 												</div>
-											)}
-										</div>
-										<div className="text-right shrink-0 pl-1 w-[4.25rem]">
-											<div className="text-[10px] uppercase tracking-[0.06em] font-medium text-[color:var(--app-muted)] leading-tight">
-												<span className="block">Best</span>
-												<span className="block">strokes</span>
+												{row.displayName.trim() !==
+													row.externalId.trim() && (
+													<div
+														className={`text-xs text-[color:var(--app-muted)] ${
+															leaderboardExternalIdTruncateInDev
+																? "truncate"
+																: "break-words [overflow-wrap:anywhere]"
+														}`}
+													>
+														{row.externalId}
+													</div>
+												)}
 											</div>
-											<div className="text-lg font-semibold text-[color:var(--foreground)] tabular-nums mt-0.5">
+										</div>
+										<div className="shrink-0 text-right">
+											<div className="text-[11px] uppercase tracking-[0.08em] text-[color:var(--app-muted)]">
+												Best strokes
+											</div>
+											<div className="text-lg text-[#173122]">
 												{row.bestStrokes}
 											</div>
 										</div>
