@@ -135,6 +135,15 @@ export function MiniGolfUserProvider({ children }: { children: React.ReactNode }
 			};
 		}
 
+		// Keep wallet status sourced from wagmi even when profile comes from Farcaster context.
+		if (isConnected && address) {
+			user = {
+				...user,
+				walletConnected: true,
+				walletAddress: address.toLowerCase(),
+			};
+		}
+
 		if (isDevelopmentEnvironment && isTestMode) {
 			user = {
 				...user,

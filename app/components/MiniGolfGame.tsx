@@ -499,29 +499,42 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 		if (isConnected) {
 			return;
 		}
-		const connector =
-			connectors.find((item) => item.id === "baseAccount") ??
-			connectors.find((item) => item.id === "coinbaseWalletSDK") ??
-			connectors.find((item) => item.id === "coinbaseWallet") ??
-			connectors.find((item) => item.id === "injected") ??
-			connectors.find((item) => item.ready) ??
-			connectors[0];
-		if (!connector) {
+		const prioritized = [
+			connectors.find((item) => item.id === "baseAccount"),
+			connectors.find((item) => item.id === "coinbaseWalletSDK"),
+			connectors.find((item) => item.id === "coinbaseWallet"),
+			connectors.find((item) => item.id === "injected"),
+			connectors.find((item) => item.ready),
+			...connectors,
+		].filter((item): item is (typeof connectors)[number] => Boolean(item));
+		const triedIds = new Set<string>();
+		const connectionCandidates = prioritized.filter((item) => {
+			if (triedIds.has(item.id)) {
+				return false;
+			}
+			triedIds.add(item.id);
+			return true;
+		});
+		if (connectionCandidates.length === 0) {
 			setTxState("idle");
 			setTxMessage("No browser wallet connector found.");
 			return;
 		}
-		try {
-			await connectAsync({
-				connector,
-				chainId: base.id,
-			});
-		} catch (error) {
-			setTxState("idle");
-			setTxMessage(
-				`Wallet connection failed: ${error instanceof Error ? error.message : "unknown error"}`,
-			);
+		let lastError: unknown = null;
+		for (const connector of connectionCandidates) {
+			try {
+				await connectAsync({
+					connector,
+				});
+				return;
+			} catch (error) {
+				lastError = error;
+			}
 		}
+		setTxState("idle");
+		setTxMessage(
+			`Wallet connection failed: ${lastError instanceof Error ? lastError.message : "unknown error"}`,
+		);
 	};
 
 	useEffect(() => {
@@ -532,25 +545,41 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 			return;
 		}
 
-		const connector =
-			connectors.find((item) => item.id === "baseAccount") ??
-			connectors.find((item) => item.id === "coinbaseWalletSDK") ??
-			connectors.find((item) => item.id === "coinbaseWallet") ??
-			connectors.find((item) => item.id === "injected") ??
-			connectors.find((item) => item.ready) ??
-			null;
-		if (!connector) {
+		const prioritized = [
+			connectors.find((item) => item.id === "baseAccount"),
+			connectors.find((item) => item.id === "coinbaseWalletSDK"),
+			connectors.find((item) => item.id === "coinbaseWallet"),
+			connectors.find((item) => item.id === "injected"),
+			connectors.find((item) => item.ready),
+			...connectors,
+		].filter((item): item is (typeof connectors)[number] => Boolean(item));
+		const triedIds = new Set<string>();
+		const connectionCandidates = prioritized.filter((item) => {
+			if (triedIds.has(item.id)) {
+				return false;
+			}
+			triedIds.add(item.id);
+			return true;
+		});
+		if (connectionCandidates.length === 0) {
 			return;
 		}
 
 		hasAttemptedAutoConnectRef.current = true;
-		void connectAsync({
-			connector,
-			chainId: base.id,
-		}).catch(() => {
+		void (async () => {
+			for (const connector of connectionCandidates) {
+				try {
+					await connectAsync({
+						connector,
+					});
+					return;
+				} catch {
+					// Try the next connector candidate.
+				}
+			}
 			setTxState("idle");
 			setTxMessage("Auto-connect unavailable. Tap Connect to retry.");
-		});
+		})();
 	}, [connectAsync, connectors, isConnected, isWalletConnecting]);
 
 	const purchaseLevelWithWallet = async (targetLevel: (typeof LEVELS)[number]) => {
