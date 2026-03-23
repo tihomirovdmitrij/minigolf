@@ -1,6 +1,6 @@
 export type EnvScope = "development" | "production";
 
-export type UserAuthSource = "dev_browser" | "dev_wallet";
+export type UserAuthSource = "miniapp" | "dev_browser" | "dev_wallet";
 
 export type UpsertMiniGolfUserInput = {
 	envScope: EnvScope;

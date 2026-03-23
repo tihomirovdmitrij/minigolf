@@ -1,21 +1,30 @@
 import type { Metadata, Viewport } from "next";
+import { farcasterConfig } from "../farcaster.config";
 import { SafeArea } from "./components/SafeArea";
 import { Providers } from "./providers";
 import "./globals.css";
 
-const APP_NAME = process.env.NEXT_PUBLIC_PROJECT_NAME ?? "Base Putt";
-const APP_DESCRIPTION = "Sink putts, beat tricky levels, and play mini-golf right on your phone.";
-
 export async function generateMetadata(): Promise<Metadata> {
 	return {
-		title: APP_NAME,
-		description: APP_DESCRIPTION,
+		title: farcasterConfig.miniapp.name,
+		description: farcasterConfig.miniapp.description,
 		appleWebApp: {
 			capable: true,
 			statusBarStyle: "default",
-			title: APP_NAME,
+			title: farcasterConfig.miniapp.name,
 		},
 		other: {
+			"fc:frame": JSON.stringify({
+				version: farcasterConfig.miniapp.version,
+				imageUrl: farcasterConfig.miniapp.heroImageUrl,
+				button: {
+					title: `Join the ${farcasterConfig.miniapp.name} Waitlist`,
+					action: {
+						name: `Launch ${farcasterConfig.miniapp.name}`,
+						type: "launch_frame",
+					},
+				},
+			}),
 			"base:app_id": "69c136c90cb572f81afbfdb8",
 		},
 	};

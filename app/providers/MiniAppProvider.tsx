@@ -1,28 +1,10 @@
 "use client";
 
+import sdk from "@farcaster/miniapp-sdk";
 import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
 
-type MiniAppUserContext = {
-	fid?: number;
-	displayName?: string;
-};
-
-type MiniAppSafeAreaInsets = {
-	top: number;
-	bottom: number;
-	left: number;
-	right: number;
-};
-
-type MiniAppClientContext = {
-	safeAreaInsets?: MiniAppSafeAreaInsets;
-};
-
 interface MiniAppContextValue {
-	context: {
-		user?: MiniAppUserContext;
-		client?: MiniAppClientContext;
-	} | null;
+	context: Awaited<typeof sdk.context> | null;
 	isReady: boolean;
 }
 
@@ -37,13 +19,20 @@ export function useMiniApp() {
 }
 
 export function MiniAppProvider({ children }: { children: ReactNode }) {
-	const [context, setContext] = useState<MiniAppContextValue["context"]>(null);
+	const [context, setContext] = useState<Awaited<typeof sdk.context> | null>(null);
 	const [isReady, setIsReady] = useState(false);
 
 	useEffect(() => {
-		// Standard web app mode: no host runtime context is expected.
-		setContext(null);
-		setIsReady(true);
+		const init = async () => {
+			const isInApp = await sdk.isInMiniApp();
+			if (isInApp) {
+				const ctx = await sdk.context;
+				setContext(ctx);
+				await sdk.actions.ready();
+				setIsReady(true);
+			}
+		};
+		init();
 	}, []);
 
 	return (

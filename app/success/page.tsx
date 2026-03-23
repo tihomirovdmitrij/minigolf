@@ -1,30 +1,27 @@
 "use client";
 
+import sdk from "@farcaster/miniapp-sdk";
+import { farcasterConfig } from "../../farcaster.config";
 import styles from "./page.module.css";
-
-const APP_NAME = process.env.NEXT_PUBLIC_PROJECT_NAME ?? "Base Putt";
 
 export default function Success() {
 	const handleShare = async () => {
-		const shareText = `Yay! I just joined the waitlist for ${APP_NAME.toUpperCase()}!`;
-		const shareUrl = process.env.NEXT_PUBLIC_URL || window.location.origin;
-
 		try {
-			if (navigator.share) {
-				await navigator.share({
-					title: APP_NAME,
-					text: shareText,
-					url: shareUrl,
-				});
-				return;
-			}
+			const text = `Yay! I just joined the waitlist for ${farcasterConfig.miniapp.name.toUpperCase()}! `;
 
-			const intentUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(
-				`${shareText} ${shareUrl}`,
-			)}`;
-			window.open(intentUrl, "_blank", "noopener,noreferrer");
+			const result = await sdk.actions.composeCast({
+				text: text,
+				embeds: [process.env.NEXT_PUBLIC_URL || ""],
+			});
+
+			// result.cast can be null if user cancels
+			if (result?.cast) {
+				console.log("Cast created successfully:", result.cast.hash);
+			} else {
+				console.log("User cancelled the cast");
+			}
 		} catch (error) {
-			console.error("Error sharing:", error);
+			console.error("Error sharing cast:", error);
 		}
 	};
 
@@ -43,7 +40,9 @@ export default function Success() {
 						</div>
 					</div>
 
-					<h1 className={styles.title}>Welcome to the {APP_NAME.toUpperCase()}!</h1>
+					<h1 className={styles.title}>
+						Welcome to the {farcasterConfig.miniapp.name.toUpperCase()}!
+					</h1>
 
 					<p className={styles.subtitle}>
 						You&apos;re in! We&apos;ll notify you as soon as we launch.

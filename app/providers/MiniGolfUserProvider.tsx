@@ -5,6 +5,7 @@ import { useAccount } from "wagmi";
 
 import { DEFAULT_USER, FREE_LEVELS } from "../../lib/minigolf/level-data";
 import type { UserState } from "../../lib/minigolf/types";
+import { useMiniApp } from "./MiniAppProvider";
 
 const isTestMode =
 	typeof process !== "undefined" &&
@@ -85,6 +86,7 @@ function makeWalletDisplayName(address: string): string {
 }
 
 export function MiniGolfUserProvider({ children }: { children: React.ReactNode }) {
+	const { context } = useMiniApp();
 	const { address, isConnected } = useAccount();
 	const [browserSeed, setBrowserSeed] = useState<number | null>(null);
 	const [lastSyncedDevUserId, setLastSyncedDevUserId] = useState<string | null>(null);
@@ -99,22 +101,27 @@ export function MiniGolfUserProvider({ children }: { children: React.ReactNode }
 	const value = useMemo<MiniGolfUserContextValue>(() => {
 		const base = DEFAULT_USER;
 
+		const fid = context?.user?.fid ?? 0;
+		const displayName = context?.user?.displayName ?? "Guest Player";
+
+		const seededGradient = makeDeterministicGradient(fid || 1);
+
 		let user: UserState = {
 			...base,
-			id: "guest-1",
-			name: "Guest Player",
-			isGuest: true,
+			id: fid ? `fid-${fid}` : "guest-1",
+			name: displayName,
+			isGuest: !fid,
 			walletConnected: false,
 			walletAddress: base.walletAddress,
-			avatarGradient: makeDeterministicGradient(1),
+			avatarGradient: seededGradient,
 			purchasedLevelIds: [...base.purchasedLevelIds],
 		};
 
-		if (isDevelopmentEnvironment && browserSeed !== null) {
+		if (!fid && isDevelopmentEnvironment && browserSeed !== null) {
 			user = makeGeneratedDevUser(base, browserSeed);
 		}
 
-		if (isConnected && address) {
+		if (!fid && isDevelopmentEnvironment && isConnected && address) {
 			const normalizedAddress = address.toLowerCase();
 			user = {
 				...base,
@@ -137,11 +144,15 @@ export function MiniGolfUserProvider({ children }: { children: React.ReactNode }
 		}
 
 		return { user };
-	}, [address, browserSeed, isConnected]);
+	}, [address, browserSeed, context, isConnected]);
+	const currentFid = context?.user?.fid ?? 0;
 	const currentUser = value.user;
 
 	useEffect(() => {
 		if (!isDevelopmentEnvironment) {
+			return;
+		}
+		if (currentFid) {
 			return;
 		}
 		const isDevBrowserUser = currentUser.id.startsWith("dev-");
@@ -186,7 +197,13 @@ export function MiniGolfUserProvider({ children }: { children: React.ReactNode }
 		return () => {
 			isCancelled = true;
 		};
-	}, [currentUser.id, currentUser.name, currentUser.walletAddress, lastSyncedDevUserId]);
+	}, [
+		currentFid,
+		currentUser.id,
+		currentUser.name,
+		currentUser.walletAddress,
+		lastSyncedDevUserId,
+	]);
 
 	return <MiniGolfUserContext.Provider value={value}>{children}</MiniGolfUserContext.Provider>;
 }

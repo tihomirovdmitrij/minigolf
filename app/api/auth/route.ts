@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
-import { postAuth } from "../../../lib/auth/auth.controller";
+import { getAuth } from "../../../lib/auth/auth.controller";
 
-export async function POST(request: NextRequest) {
-	return postAuth(request);
+export async function GET(request: NextRequest) {
+	return getAuth(request);
 }
