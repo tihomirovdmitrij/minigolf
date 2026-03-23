@@ -1,10 +1,9 @@
 "use client";
-import { farcasterMiniApp } from "@farcaster/miniapp-wagmi-connector";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 import { createConfig, http, WagmiProvider } from "wagmi";
 import { base } from "wagmi/chains";
-import { injected } from "wagmi/connectors";
+import { coinbaseWallet, injected } from "wagmi/connectors";
 import { MiniAppProvider } from "./providers/MiniAppProvider";
 import { MiniGolfUserProvider } from "./providers/MiniGolfUserProvider";
 
@@ -17,8 +16,17 @@ const config = createConfig({
 	chains: [base],
 	transports: { [base.id]: http() },
 	connectors: isDevelopmentEnvironment
-		? [farcasterMiniApp(), injected({ shimDisconnect: true })]
-		: [farcasterMiniApp()],
+		? [
+				coinbaseWallet({
+					appName: process.env.NEXT_PUBLIC_PROJECT_NAME ?? "Base Putt",
+				}),
+				injected({ shimDisconnect: true }),
+			]
+		: [
+				coinbaseWallet({
+					appName: process.env.NEXT_PUBLIC_PROJECT_NAME ?? "Base Putt",
+				}),
+			],
 });
 
 export function Providers({ children }: { children: ReactNode }) {

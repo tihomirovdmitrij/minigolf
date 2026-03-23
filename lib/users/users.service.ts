@@ -1,9 +1,9 @@
 import { findMiniGolfUserByEnvAndExternalId, upsertMiniGolfUser } from "./users.repository";
 import type { EnvScope, UpsertMiniGolfUserInput } from "./users.types";
 
-type RegisterMiniAppUserInput = {
+type RegisterWalletUserInput = {
 	envScope: EnvScope;
-	fid: number;
+	walletAddress: string;
 	displayName: string;
 };
 
@@ -14,13 +14,14 @@ type RegisterDevBrowserUserInput = {
 	walletAddress?: string;
 };
 
-export async function registerMiniAppUser(input: RegisterMiniAppUserInput) {
+export async function registerWalletUser(input: RegisterWalletUserInput) {
+	const walletAddress = input.walletAddress.toLowerCase();
 	return upsertMiniGolfUser({
 		envScope: input.envScope,
-		externalId: `fid-${input.fid}`,
+		externalId: `wallet:${walletAddress}`,
 		displayName: input.displayName,
-		authSource: "miniapp",
-		farcasterFid: input.fid,
+		authSource: "dev_wallet",
+		walletAddress,
 	});
 }
 
@@ -49,20 +50,6 @@ export async function ensureStoredUser(
 	const existing = await findMiniGolfUserByEnvAndExternalId(envScope, externalId);
 	if (existing) {
 		return existing;
-	}
-
-	const fidMatch = /^fid-(\d+)$/.exec(externalId);
-	if (fidMatch) {
-		const fid = Number(fidMatch[1]);
-		if (Number.isInteger(fid) && fid > 0) {
-			return upsertMiniGolfUser({
-				envScope,
-				externalId,
-				displayName,
-				authSource: "miniapp",
-				farcasterFid: fid,
-			});
-		}
 	}
 
 	const walletMatch = /^wallet:(0x[a-fA-F0-9]{40})$/.exec(externalId);
