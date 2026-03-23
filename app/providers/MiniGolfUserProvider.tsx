@@ -1,7 +1,8 @@
 "use client";
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { useAccount } from "wagmi";
+import { useAccount, useEnsName } from "wagmi";
+import { base } from "wagmi/chains";
 
 import { DEFAULT_USER, FREE_LEVELS } from "../../lib/minigolf/level-data";
 import type { UserState } from "../../lib/minigolf/types";
@@ -80,12 +81,23 @@ function makeGeneratedDevUser(base: UserState, seed: number): UserState {
 	};
 }
 
-function makeWalletDisplayName(address: string): string {
+function makeWalletDisplayName(address: string, nickname?: string | null): string {
+	const preferredName = nickname?.trim();
+	if (preferredName) {
+		return preferredName;
+	}
 	return `Wallet ${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
 export function MiniGolfUserProvider({ children }: { children: React.ReactNode }) {
 	const { address, isConnected } = useAccount();
+	const { data: baseNickname } = useEnsName({
+		address,
+		chainId: base.id,
+		query: {
+			enabled: Boolean(address),
+		},
+	});
 	const [browserSeed, setBrowserSeed] = useState<number | null>(null);
 	const [lastSyncedDevUserId, setLastSyncedDevUserId] = useState<string | null>(null);
 
@@ -119,7 +131,7 @@ export function MiniGolfUserProvider({ children }: { children: React.ReactNode }
 			user = {
 				...base,
 				id: `wallet:${normalizedAddress}`,
-				name: makeWalletDisplayName(normalizedAddress),
+				name: makeWalletDisplayName(normalizedAddress, baseNickname),
 				isGuest: false,
 				walletConnected: true,
 				walletAddress: normalizedAddress,
@@ -137,7 +149,7 @@ export function MiniGolfUserProvider({ children }: { children: React.ReactNode }
 		}
 
 		return { user };
-	}, [address, browserSeed, isConnected]);
+	}, [address, baseNickname, browserSeed, isConnected]);
 	const currentUser = value.user;
 
 	useEffect(() => {
