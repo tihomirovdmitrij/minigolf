@@ -1,16 +1,16 @@
 "use client";
-import { farcasterMiniApp } from "@farcaster/miniapp-wagmi-connector";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 import { createConfig, http, WagmiProvider } from "wagmi";
 import { base } from "wagmi/chains";
+import { injected } from "wagmi/connectors";
 import { MiniAppProvider } from "./providers/MiniAppProvider";
 import { MiniGolfUserProvider } from "./providers/MiniGolfUserProvider";
 
 const config = createConfig({
 	chains: [base],
 	transports: { [base.id]: http() },
-	connectors: [farcasterMiniApp()],
+	connectors: [injected({ shimDisconnect: true })],
 });
 
 export function RootProvider({ children }: { children: ReactNode }) {
