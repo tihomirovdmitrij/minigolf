@@ -36,7 +36,6 @@ type SiweAuthPayload = {
 	message: string;
 	signature: string;
 	displayName?: string;
-	nickname?: string;
 };
 
 function isSiweAuthPayload(value: unknown): value is SiweAuthPayload {
@@ -49,19 +48,14 @@ function isSiweAuthPayload(value: unknown): value is SiweAuthPayload {
 		payload.message.trim().length > 0 &&
 		typeof payload.signature === "string" &&
 		payload.signature.trim().length > 0 &&
-		(payload.displayName == null || typeof payload.displayName === "string") &&
-		(payload.nickname == null || typeof payload.nickname === "string")
+		(payload.displayName == null || typeof payload.displayName === "string")
 	);
 }
 
-function getWalletDisplayName(
-	walletAddress: string,
-	requestedNickname?: string,
-	requestedDisplayName?: string,
-): string {
-	const preferredName = requestedNickname?.trim() || requestedDisplayName?.trim();
-	if (preferredName) {
-		return preferredName;
+function getWalletDisplayName(walletAddress: string, requestedDisplayName?: string): string {
+	const displayName = requestedDisplayName?.trim();
+	if (displayName) {
+		return displayName;
 	}
 	return `Wallet ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`;
 }
@@ -94,7 +88,7 @@ export async function postAuth(request: NextRequest) {
 		const walletAddress = verification.data.address.toLowerCase();
 
 		const envScope = resolveEnvScope();
-		const displayName = getWalletDisplayName(walletAddress, body.nickname, body.displayName);
+		const displayName = getWalletDisplayName(walletAddress, body.displayName);
 		const storedUser = await registerWalletUser({
 			envScope,
 			walletAddress,
