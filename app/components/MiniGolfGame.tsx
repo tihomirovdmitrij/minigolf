@@ -68,6 +68,7 @@ type LeaderboardApiPayload = {
 export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const playScrollRef = useRef<HTMLDivElement | null>(null);
+	const hasAttemptedAutoConnectRef = useRef(false);
 	const rafRef = useRef<number | null>(null);
 	const activePointerIdRef = useRef<number | null>(null);
 	const scrollPointerRef = useRef<{ id: number; lastY: number } | null>(null);
@@ -498,7 +499,13 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 		if (isConnected) {
 			return;
 		}
-		const connector = connectors.find((item) => item.id === "injected") ?? connectors[0];
+		const connector =
+			connectors.find((item) => item.id === "baseAccount") ??
+			connectors.find((item) => item.id === "coinbaseWalletSDK") ??
+			connectors.find((item) => item.id === "coinbaseWallet") ??
+			connectors.find((item) => item.id === "injected") ??
+			connectors.find((item) => item.ready) ??
+			connectors[0];
 		if (!connector) {
 			setTxState("idle");
 			setTxMessage("No browser wallet connector found.");
@@ -516,6 +523,35 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 			);
 		}
 	};
+
+	useEffect(() => {
+		if (hasAttemptedAutoConnectRef.current) {
+			return;
+		}
+		if (isConnected || isWalletConnecting || connectors.length === 0) {
+			return;
+		}
+
+		const connector =
+			connectors.find((item) => item.id === "baseAccount") ??
+			connectors.find((item) => item.id === "coinbaseWalletSDK") ??
+			connectors.find((item) => item.id === "coinbaseWallet") ??
+			connectors.find((item) => item.id === "injected") ??
+			connectors.find((item) => item.ready) ??
+			null;
+		if (!connector) {
+			return;
+		}
+
+		hasAttemptedAutoConnectRef.current = true;
+		void connectAsync({
+			connector,
+			chainId: base.id,
+		}).catch(() => {
+			setTxState("idle");
+			setTxMessage("Auto-connect unavailable. Tap Connect to retry.");
+		});
+	}, [connectAsync, connectors, isConnected, isWalletConnecting]);
 
 	const purchaseLevelWithWallet = async (targetLevel: (typeof LEVELS)[number]) => {
 		const normalizedAddress = address?.toLowerCase();
