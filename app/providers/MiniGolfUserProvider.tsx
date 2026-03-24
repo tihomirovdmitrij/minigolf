@@ -123,15 +123,17 @@ export function MiniGolfUserProvider({ children }: { children: React.ReactNode }
 
 		if (!fid && isDevelopmentEnvironment && isConnected && address) {
 			const normalizedAddress = address.toLowerCase();
+			const hasStableExternalId = user.id !== "guest-1";
 			user = {
-				...base,
-				id: `wallet:${normalizedAddress}`,
-				name: makeWalletDisplayName(normalizedAddress),
+				...user,
+				id: hasStableExternalId ? user.id : `wallet:${normalizedAddress}`,
+				name: hasStableExternalId ? user.name : makeWalletDisplayName(normalizedAddress),
 				isGuest: false,
 				walletConnected: true,
 				walletAddress: normalizedAddress,
-				avatarGradient: makeDeterministicGradient(hashString(normalizedAddress)),
-				purchasedLevelIds: [...base.purchasedLevelIds],
+				avatarGradient: hasStableExternalId
+					? user.avatarGradient
+					: makeDeterministicGradient(hashString(normalizedAddress)),
 			};
 		}
 

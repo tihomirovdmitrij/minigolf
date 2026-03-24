@@ -600,6 +600,11 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 			setTxMessage("Wallet client is not ready yet. Try again.");
 			return;
 		}
+		if (user.isGuest || user.id === "guest-1") {
+			setTxState("idle");
+			setTxMessage("Profile is not ready yet. Reopen from Farcaster and try again.");
+			return;
+		}
 		if (chainId !== base.id) {
 			setTxState("idle");
 			setTxMessage("Switch wallet network to Base mainnet first.");

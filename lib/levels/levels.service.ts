@@ -77,6 +77,12 @@ export async function recordLevelPurchase(
 	input: RecordLevelPurchaseRequest,
 ): Promise<RecordLevelPurchaseResult> {
 	await syncGameLevelsToDatabase();
+	if (input.envScope === "production" && !/^fid-\d+$/.test(input.userExternalId)) {
+		throw new PaymentVerificationError(
+			"Authenticated Farcaster profile is required to purchase levels",
+			422,
+		);
+	}
 
 	const level = await findMiniGolfLevelByCode(input.levelCode);
 	if (!level) {
