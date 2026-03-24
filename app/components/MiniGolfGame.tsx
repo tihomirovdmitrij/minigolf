@@ -832,7 +832,7 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 								Restart
 							</button>
 						</div>
-						<div className="relative w-full aspect-[9/16]">
+						<div className="relative mx-auto w-full aspect-[9/16] max-w-[min(100%,calc((100dvh-19rem)*9/16))]">
 							<canvas
 								ref={canvasRef}
 								width={WORLD.w}
