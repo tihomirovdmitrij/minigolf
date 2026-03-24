@@ -41,46 +41,83 @@ export async function getStoredUser(envScope: EnvScope, externalId: string) {
 	return findMiniGolfUserByEnvAndExternalId(envScope, externalId);
 }
 
+type SyncClientUserInput = {
+	envScope: EnvScope;
+	externalId: string;
+	displayName: string;
+	walletAddress?: string;
+};
+
+function buildUpsertPayloadFromExternalId(
+	input: SyncClientUserInput,
+	existingWalletAddress?: string | null,
+): UpsertMiniGolfUserInput {
+	const normalizedWalletAddress = input.walletAddress?.toLowerCase();
+	const fidMatch = /^fid-(\d+)$/.exec(input.externalId);
+	if (fidMatch) {
+		const fid = Number(fidMatch[1]);
+		if (Number.isInteger(fid) && fid > 0) {
+			return {
+				envScope: input.envScope,
+				externalId: input.externalId,
+				displayName: input.displayName,
+				authSource: "miniapp",
+				farcasterFid: fid,
+				walletAddress: normalizedWalletAddress ?? existingWalletAddress ?? undefined,
+			};
+		}
+	}
+
+	const walletMatch = /^wallet:(0x[a-fA-F0-9]{40})$/.exec(input.externalId);
+	if (walletMatch) {
+		const walletFromExternalId = walletMatch[1]?.toLowerCase();
+		return {
+			envScope: input.envScope,
+			externalId: input.externalId,
+			displayName: input.displayName,
+			authSource: "dev_wallet",
+			walletAddress:
+				normalizedWalletAddress ??
+				walletFromExternalId ??
+				existingWalletAddress ??
+				undefined,
+		};
+	}
+
+	return {
+		envScope: input.envScope,
+		externalId: input.externalId,
+		displayName: input.displayName,
+		authSource: normalizedWalletAddress ? "dev_wallet" : "dev_browser",
+		walletAddress: normalizedWalletAddress ?? existingWalletAddress ?? undefined,
+	};
+}
+
+export async function syncClientUser(input: SyncClientUserInput) {
+	const existing = await findMiniGolfUserByEnvAndExternalId(input.envScope, input.externalId);
+	const payload = buildUpsertPayloadFromExternalId(input, existing?.walletAddress);
+	return upsertMiniGolfUser(payload);
+}
+
 export async function ensureStoredUser(
 	envScope: EnvScope,
 	externalId: string,
 	displayName: string,
+	walletAddress?: string,
 ) {
 	const existing = await findMiniGolfUserByEnvAndExternalId(envScope, externalId);
-	if (existing) {
+	const normalizedWalletAddress = walletAddress?.toLowerCase();
+	if (
+		existing &&
+		existing.displayName === displayName &&
+		(existing.walletAddress ?? undefined) === normalizedWalletAddress
+	) {
 		return existing;
 	}
-
-	const fidMatch = /^fid-(\d+)$/.exec(externalId);
-	if (fidMatch) {
-		const fid = Number(fidMatch[1]);
-		if (Number.isInteger(fid) && fid > 0) {
-			return upsertMiniGolfUser({
-				envScope,
-				externalId,
-				displayName,
-				authSource: "miniapp",
-				farcasterFid: fid,
-			});
-		}
-	}
-
-	const walletMatch = /^wallet:(0x[a-fA-F0-9]{40})$/.exec(externalId);
-	if (walletMatch) {
-		const walletAddress = walletMatch[1]?.toLowerCase();
-		return upsertMiniGolfUser({
-			envScope,
-			externalId,
-			displayName,
-			authSource: "dev_wallet",
-			walletAddress,
-		});
-	}
-
-	return upsertMiniGolfUser({
+	return syncClientUser({
 		envScope,
 		externalId,
 		displayName,
-		authSource: "dev_browser",
+		walletAddress: normalizedWalletAddress,
 	});
 }

@@ -89,7 +89,7 @@ export function MiniGolfUserProvider({ children }: { children: React.ReactNode }
 	const { context } = useMiniApp();
 	const { address, isConnected } = useAccount();
 	const [browserSeed, setBrowserSeed] = useState<number | null>(null);
-	const [lastSyncedDevUserId, setLastSyncedDevUserId] = useState<string | null>(null);
+	const [lastSyncedUserKey, setLastSyncedUserKey] = useState<string | null>(null);
 
 	useEffect(() => {
 		if (!isDevelopmentEnvironment) {
@@ -158,60 +158,53 @@ export function MiniGolfUserProvider({ children }: { children: React.ReactNode }
 	const currentUser = value.user;
 
 	useEffect(() => {
-		if (!isDevelopmentEnvironment) {
+		if (currentUser.isGuest || currentUser.id === "guest-1") {
 			return;
 		}
-		if (currentFid) {
-			return;
-		}
-		const isDevBrowserUser = currentUser.id.startsWith("dev-");
-		const isDevWalletUser = currentUser.id.startsWith("wallet:");
-		if (!isDevBrowserUser && !isDevWalletUser) {
-			return;
-		}
-		if (lastSyncedDevUserId === currentUser.id) {
+		const syncKey = `${currentUser.id}:${currentUser.name}:${currentUser.walletAddress ?? ""}`;
+		if (lastSyncedUserKey === syncKey) {
 			return;
 		}
 
 		let isCancelled = false;
 
-		const syncDevUser = async () => {
+		const syncUser = async () => {
 			try {
-				const response = await fetch("/api/users/dev", {
+				const response = await fetch("/api/users/sync", {
 					method: "POST",
 					headers: {
 						"content-type": "application/json",
 					},
 					body: JSON.stringify({
-						generatedId: currentUser.id,
-						displayName: currentUser.name,
-						walletAddress: isDevWalletUser ? currentUser.walletAddress : undefined,
+						userExternalId: currentUser.id,
+						userDisplayName: currentUser.name,
+						walletAddress: currentUser.walletAddress,
 					}),
 				});
 				if (!response.ok) {
 					const responseText = await response.text();
-					console.warn("Failed to sync dev user", response.status, responseText);
+					console.warn("Failed to sync user", response.status, responseText);
 					return;
 				}
 				if (!isCancelled) {
-					setLastSyncedDevUserId(currentUser.id);
+					setLastSyncedUserKey(syncKey);
 				}
 			} catch (error) {
-				console.warn("Failed to sync dev user", error);
+				console.warn("Failed to sync user", error);
 			}
 		};
 
-		void syncDevUser();
+		void syncUser();
 
 		return () => {
 			isCancelled = true;
 		};
 	}, [
-		currentFid,
 		currentUser.id,
+		currentUser.isGuest,
 		currentUser.name,
 		currentUser.walletAddress,
-		lastSyncedDevUserId,
+		lastSyncedUserKey,
 	]);
 
 	return <MiniGolfUserContext.Provider value={value}>{children}</MiniGolfUserContext.Provider>;
