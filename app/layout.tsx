@@ -8,6 +8,22 @@ export async function generateMetadata(): Promise<Metadata> {
 	return {
 		title: farcasterConfig.miniapp.name,
 		description: farcasterConfig.miniapp.description,
+		icons: {
+			icon: "/logo.png",
+			apple: "/logo.png",
+			shortcut: "/logo.png",
+		},
+		openGraph: {
+			title: farcasterConfig.miniapp.ogTitle || farcasterConfig.miniapp.name,
+			description: farcasterConfig.miniapp.ogDescription || farcasterConfig.miniapp.description,
+			images: [{ url: farcasterConfig.miniapp.ogImageUrl }],
+		},
+		twitter: {
+			card: "summary_large_image",
+			title: farcasterConfig.miniapp.ogTitle || farcasterConfig.miniapp.name,
+			description: farcasterConfig.miniapp.ogDescription || farcasterConfig.miniapp.description,
+			images: [farcasterConfig.miniapp.ogImageUrl],
+		},
 		appleWebApp: {
 			capable: true,
 			statusBarStyle: "default",
