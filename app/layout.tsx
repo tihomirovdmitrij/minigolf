@@ -34,9 +34,9 @@ export async function generateMetadata(): Promise<Metadata> {
 				version: farcasterConfig.miniapp.version,
 				imageUrl: farcasterConfig.miniapp.heroImageUrl,
 				button: {
-					title: `Join the ${farcasterConfig.miniapp.name} Waitlist`,
+					title: `Play ${farcasterConfig.miniapp.name}`,
 					action: {
-						name: `Launch ${farcasterConfig.miniapp.name}`,
+						name: `Play ${farcasterConfig.miniapp.name}`,
 						type: "launch_frame",
 					},
 				},
