@@ -917,20 +917,16 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 									</div>
 								</div>
 							</div>
-							<button
-								className={
-									user.walletConnected ? secondaryButtonClass : primaryButtonClass
-								}
-								type="button"
-								disabled={isWalletConnecting || isConnected}
-								onClick={connectWallet}
-							>
-								{isWalletConnecting
-									? "Connecting..."
-									: user.walletConnected
-										? "Connected"
-										: "Connect"}
-							</button>
+							{!isConnected && (
+								<button
+									className={primaryButtonClass}
+									type="button"
+									disabled={isWalletConnecting}
+									onClick={connectWallet}
+								>
+									{isWalletConnecting ? "Connecting..." : "Connect"}
+								</button>
+							)}
 						</div>
 						{(txMessage || txState !== "idle") && (
 							<div
