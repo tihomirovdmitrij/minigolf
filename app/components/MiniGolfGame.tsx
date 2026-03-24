@@ -655,7 +655,7 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 					"content-type": "application/json",
 				},
 				body: JSON.stringify({
-					userExternalId: `wallet:${normalizedAddress}`,
+					userExternalId: user.id,
 					userDisplayName: user.name,
 					levelCode: targetLevel.id,
 					txHash,
