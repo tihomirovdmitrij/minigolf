@@ -77,8 +77,9 @@ export const miniGolfLevelPurchases = pgTable(
 			table.userId,
 			table.levelId,
 		),
-		uniqueIndex("mini_golf_level_purchases_env_scope_tx_hash_idx").on(
+		uniqueIndex("mini_golf_level_purchases_env_scope_user_tx_hash_idx").on(
 			table.envScope,
+			table.userId,
 			table.txHash,
 		),
 	],

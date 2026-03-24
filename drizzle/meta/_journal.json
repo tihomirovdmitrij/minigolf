@@ -29,6 +29,13 @@
       "when": 1773842137180,
       "tag": "0003_married_vivisector",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1773845000000,
+      "tag": "0004_tx_hash_per_user",
+      "breakpoints": true
     }
   ]
 }

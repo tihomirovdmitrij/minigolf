@@ -113,10 +113,10 @@ export async function postPurchaseLevel(request: NextRequest) {
 		}
 		if (
 			error instanceof Error &&
-			error.message.includes("mini_golf_level_purchases_env_scope_tx_hash_idx")
+			error.message.includes("mini_golf_level_purchases_env_scope_user_tx_hash_idx")
 		) {
 			return NextResponse.json(
-				{ message: "This transaction hash has already been used" },
+				{ message: "This transaction hash has already been used by this user" },
 				{ status: 409 },
 			);
 		}

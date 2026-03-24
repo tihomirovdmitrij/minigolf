@@ -185,10 +185,13 @@ export function insertLocalLevelPurchase(input: {
 	amountUsdc: number;
 }): LocalMiniGolfLevelPurchaseRecord {
 	const duplicateHash = localStore.purchases.find(
-		(purchase) => purchase.envScope === input.envScope && purchase.txHash === input.txHash,
+		(purchase) =>
+			purchase.envScope === input.envScope &&
+			purchase.userId === input.userId &&
+			purchase.txHash === input.txHash,
 	);
 	if (duplicateHash) {
-		throw new Error("mini_golf_level_purchases_env_scope_tx_hash_idx");
+		throw new Error("mini_golf_level_purchases_env_scope_user_tx_hash_idx");
 	}
 
 	const record: LocalMiniGolfLevelPurchaseRecord = {

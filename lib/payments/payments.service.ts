@@ -6,7 +6,7 @@ import {
 	parseUnits,
 	type TransactionReceipt,
 } from "viem";
-import { getBaseMainnetTransaction, getBaseMainnetTransactionReceipt } from "./payments.repository";
+import { getBaseMainnetTransactionReceipt } from "./payments.repository";
 
 type VerifyUsdcTransferInput = {
 	txHash: string;
@@ -111,18 +111,6 @@ export async function verifyUsdcTransferOnBaseMainnet(
 	const expectedToAddress = requireEnvAddress("USDC_RECEIVER_WALLET");
 	const usdcContractAddress = requireEnvAddress("USDC_BASE_MAINNET_CONTRACT");
 	const expectedAmount = toUsdcBaseUnits(input.expectedAmountUsdc);
-
-	const transaction = await getBaseMainnetTransaction(txHash).catch(() => {
-		throw new PaymentVerificationError("Transaction not found on Base mainnet");
-	});
-	if (transaction.from.toLowerCase() !== expectedFromAddress) {
-		throw new PaymentVerificationError("Transaction sender does not match the player wallet");
-	}
-	if (!transaction.to || transaction.to.toLowerCase() !== usdcContractAddress) {
-		throw new PaymentVerificationError(
-			"Transaction target is not the configured USDC contract",
-		);
-	}
 
 	const receipt = await getBaseMainnetTransactionReceipt(txHash).catch(() => {
 		throw new PaymentVerificationError("Transaction receipt not found");
