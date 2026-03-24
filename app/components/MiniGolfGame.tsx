@@ -74,11 +74,15 @@ type PurchasedLevelsApiPayload = {
 export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const playScrollRef = useRef<HTMLDivElement | null>(null);
+	const playFieldViewportRef = useRef<HTMLDivElement | null>(null);
 	const hasAttemptedAutoConnectRef = useRef(false);
 	const rafRef = useRef<number | null>(null);
 	const activePointerIdRef = useRef<number | null>(null);
 	const scrollPointerRef = useRef<{ id: number; lastY: number } | null>(null);
 	const { assetsRef, dprRef } = useCanvasAssets(canvasRef);
+	const [playFieldSize, setPlayFieldSize] = useState<{ width: number; height: number } | null>(
+		null,
+	);
 
 	const [tab, setTab] = useState<TabKey>("play");
 	const [levelIndex, setLevelIndex] = useState(0);
@@ -569,6 +573,45 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 		};
 	}, [tab, user.id]);
 
+	useEffect(() => {
+		if (tab !== "play" || typeof window === "undefined") {
+			return;
+		}
+		const el = playFieldViewportRef.current;
+		if (!el) {
+			return;
+		}
+
+		const updatePlayFieldSize = () => {
+			const rect = el.getBoundingClientRect();
+			if (rect.width <= 0 || rect.height <= 0) {
+				return;
+			}
+			const nextWidth = Math.min(rect.width, (rect.height * WORLD.w) / WORLD.h);
+			const nextHeight = (nextWidth * WORLD.h) / WORLD.w;
+			const width = Math.max(1, Math.floor(nextWidth));
+			const height = Math.max(1, Math.floor(nextHeight));
+			setPlayFieldSize((prev) => {
+				if (prev && prev.width === width && prev.height === height) {
+					return prev;
+				}
+				return { width, height };
+			});
+		};
+
+		updatePlayFieldSize();
+		const observer = new ResizeObserver(() => {
+			updatePlayFieldSize();
+		});
+		observer.observe(el);
+		window.addEventListener("resize", updatePlayFieldSize);
+
+		return () => {
+			observer.disconnect();
+			window.removeEventListener("resize", updatePlayFieldSize);
+		};
+	}, [tab]);
+
 	const connectWallet = async () => {
 		if (isConnected) {
 			return;
@@ -802,11 +845,13 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 					ref={playScrollRef}
 					className={
 						tab === "play"
-							? "flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden overscroll-y-contain"
+							? "flex min-h-0 flex-1 flex-col gap-1"
 							: "hidden"
 					}
 				>
-					<div className={`${panelClass} rounded-[28px] overflow-hidden shrink-0`}>
+					<div
+						className={`${panelClass} rounded-[28px] overflow-hidden flex min-h-0 flex-1 flex-col`}
+					>
 						<div className="flex items-center justify-between gap-2 border-b border-[color:var(--app-border)] bg-[rgba(255,255,255,0.88)] px-3 py-2">
 							<div className="min-w-0">
 								<div className="text-[11px] uppercase tracking-[0.08em] font-medium text-[color:var(--app-muted)]">
@@ -832,45 +877,57 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 								Restart
 							</button>
 						</div>
-						<div className="relative mx-auto w-full aspect-[9/16] max-w-[min(100%,calc((100dvh-19rem)*9/16))]">
-							<canvas
-								ref={canvasRef}
-								width={WORLD.w}
-								height={WORLD.h}
-								className="block h-full w-full touch-none"
-							/>
-							{levelNeedsPurchase && (
-								<div className="absolute inset-x-2 bottom-2 z-10 rounded-[18px] border border-[color:var(--app-border-strong)] bg-[linear-gradient(180deg,rgba(230,255,238,0.97),rgba(255,255,255,0.95))] px-3 py-3 shadow-[0_12px_24px_rgba(111,221,150,0.2)] backdrop-blur-sm">
-									<div className="text-sm font-semibold text-[color:var(--foreground)]">
-										Level locked
-									</div>
-									<div className="mt-1 text-[12px] leading-snug text-[color:var(--app-muted)]">
-										Starting from level 5, each level is bought separately for{" "}
-										{LEVEL_PRICE_USDC} USDC.
-									</div>
-									<button
-										className={`${primaryButtonClass} mt-3 w-full`}
-										type="button"
-										disabled={txState === "pending"}
-										onClick={() => purchaseLevelWithWallet(level)}
-									>
-										Buy this level for {LEVEL_PRICE_USDC} USDC
-									</button>
-									{(txMessage || txState !== "idle") && (
-										<div
-											className={`mt-2 text-[12px] leading-4 ${
-												txState === "success"
-													? "text-emerald-800"
-													: txState === "pending"
-														? "text-amber-900"
-														: "text-[color:var(--app-muted)]"
-											}`}
-										>
-											{txMessage || "…"}
+						<div
+							ref={playFieldViewportRef}
+							className="relative flex min-h-0 flex-1 items-center justify-center"
+						>
+							<div
+								className="relative"
+								style={
+									playFieldSize
+										? { width: `${playFieldSize.width}px`, height: `${playFieldSize.height}px` }
+										: { width: "100%", aspectRatio: "9 / 16" }
+								}
+							>
+								<canvas
+									ref={canvasRef}
+									width={WORLD.w}
+									height={WORLD.h}
+									className="block h-full w-full touch-none"
+								/>
+								{levelNeedsPurchase && (
+									<div className="absolute inset-x-2 bottom-2 z-10 rounded-[18px] border border-[color:var(--app-border-strong)] bg-[linear-gradient(180deg,rgba(230,255,238,0.97),rgba(255,255,255,0.95))] px-3 py-3 shadow-[0_12px_24px_rgba(111,221,150,0.2)] backdrop-blur-sm">
+										<div className="text-sm font-semibold text-[color:var(--foreground)]">
+											Level locked
 										</div>
-									)}
-								</div>
-							)}
+										<div className="mt-1 text-[12px] leading-snug text-[color:var(--app-muted)]">
+											Starting from level 5, each level is bought separately for{" "}
+											{LEVEL_PRICE_USDC} USDC.
+										</div>
+										<button
+											className={`${primaryButtonClass} mt-3 w-full`}
+											type="button"
+											disabled={txState === "pending"}
+											onClick={() => purchaseLevelWithWallet(level)}
+										>
+											Buy this level for {LEVEL_PRICE_USDC} USDC
+										</button>
+										{(txMessage || txState !== "idle") && (
+											<div
+												className={`mt-2 text-[12px] leading-4 ${
+													txState === "success"
+														? "text-emerald-800"
+														: txState === "pending"
+															? "text-amber-900"
+															: "text-[color:var(--app-muted)]"
+												}`}
+											>
+												{txMessage || "…"}
+											</div>
+										)}
+									</div>
+								)}
+							</div>
 						</div>
 					</div>
 
