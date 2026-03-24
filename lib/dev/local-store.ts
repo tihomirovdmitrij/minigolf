@@ -333,3 +333,26 @@ export function findLocalUserRunHistoryByExternalId(
 		})
 		.slice(0, limit);
 }
+
+export function findLocalPurchasedLevelCodesByUserExternalId(
+	envScope: EnvScope,
+	userExternalId: string,
+): string[] {
+	const user = findLocalMiniGolfUserByEnvAndExternalId(envScope, userExternalId);
+	if (!user) {
+		return [];
+	}
+
+	const codes = new Set<string>();
+	for (const purchase of localStore.purchases) {
+		if (purchase.envScope !== envScope || purchase.userId !== user.id) {
+			continue;
+		}
+		const level = localStore.levels.find((candidate) => candidate.id === purchase.levelId);
+		if (level) {
+			codes.add(level.levelCode);
+		}
+	}
+
+	return Array.from(codes.values());
+}

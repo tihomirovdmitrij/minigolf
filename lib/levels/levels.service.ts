@@ -9,6 +9,7 @@ import {
 	findLevelLeaderboardByLevelCode,
 	findLevelPurchaseByUserAndLevel,
 	findMiniGolfLevelByCode,
+	findPurchasedLevelCodesByUserExternalId,
 	findUserRunHistoryByExternalId,
 	insertLevelPurchase,
 	insertLevelRun,
@@ -199,4 +200,11 @@ export async function getUserRunHistory(
 		strokes: row.strokes,
 		completedAt: row.completedAt.toISOString(),
 	}));
+}
+
+export async function getPurchasedLevelCodes(
+	envScope: EnvScope,
+	userExternalId: string,
+): Promise<string[]> {
+	return findPurchasedLevelCodesByUserExternalId(envScope, userExternalId);
 }

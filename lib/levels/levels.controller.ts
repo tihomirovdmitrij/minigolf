@@ -3,6 +3,7 @@ import { LEVEL_PRICE_USDC } from "../minigolf/level-data";
 import { PaymentVerificationError } from "../payments/payments.service";
 import { resolveEnvScope } from "../users/users.types";
 import {
+	getPurchasedLevelCodes,
 	getLevelLeaderboard,
 	getUserRunHistory,
 	recordLevelPurchase,
@@ -216,6 +217,27 @@ export async function getRunsHistory(request: NextRequest) {
 		return NextResponse.json({
 			success: true,
 			rows,
+		});
+	} catch (error) {
+		if (error instanceof Error) {
+			return NextResponse.json({ message: error.message }, { status: 500 });
+		}
+		throw error;
+	}
+}
+
+export async function getPurchasedLevels(request: NextRequest) {
+	const userExternalId = request.nextUrl.searchParams.get("userExternalId");
+	if (!userExternalId || userExternalId.trim().length === 0) {
+		return NextResponse.json({ message: "userExternalId is required" }, { status: 400 });
+	}
+
+	try {
+		const envScope = resolveEnvScope();
+		const levelCodes = await getPurchasedLevelCodes(envScope, userExternalId.trim());
+		return NextResponse.json({
+			success: true,
+			levelCodes,
 		});
 	} catch (error) {
 		if (error instanceof Error) {

@@ -9,6 +9,7 @@ import {
 } from "../db/schema";
 import {
 	findLocalLevelLeaderboardByLevelCode,
+	findLocalPurchasedLevelCodesByUserExternalId,
 	findLocalLevelPurchaseByUserAndLevel,
 	findLocalMiniGolfLevelByCode,
 	findLocalMiniGolfUserByEnvAndExternalId,
@@ -272,4 +273,29 @@ export async function findUserRunHistoryByExternalId(
 		.limit(limit);
 
 	return rows;
+}
+
+export async function findPurchasedLevelCodesByUserExternalId(
+	envScope: EnvScope,
+	userExternalId: string,
+): Promise<string[]> {
+	if (!isDatabaseConfigured()) {
+		return findLocalPurchasedLevelCodesByUserExternalId(envScope, userExternalId);
+	}
+
+	const db = getDb();
+	const rows = await db
+		.select({ levelCode: miniGolfLevels.levelCode })
+		.from(miniGolfLevelPurchases)
+		.innerJoin(miniGolfUsers, eq(miniGolfUsers.id, miniGolfLevelPurchases.userId))
+		.innerJoin(miniGolfLevels, eq(miniGolfLevels.id, miniGolfLevelPurchases.levelId))
+		.where(
+			and(
+				eq(miniGolfLevelPurchases.envScope, envScope),
+				eq(miniGolfUsers.envScope, envScope),
+				eq(miniGolfUsers.externalId, userExternalId),
+			),
+		);
+
+	return Array.from(new Set(rows.map((row) => row.levelCode)));
 }

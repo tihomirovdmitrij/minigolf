@@ -65,6 +65,12 @@ type LeaderboardApiPayload = {
 	message?: string;
 };
 
+type PurchasedLevelsApiPayload = {
+	success?: boolean;
+	levelCodes?: string[];
+	message?: string;
+};
+
 export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 	const canvasRef = useRef<HTMLCanvasElement | null>(null);
 	const playScrollRef = useRef<HTMLDivElement | null>(null);
@@ -115,11 +121,73 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 
 	useEffect(() => {
 		setUser((prev) => {
-			const next = initialUser ?? prev;
+			if (!initialUser) {
+				return prev;
+			}
+			const next =
+				prev.id === initialUser.id
+					? {
+							...initialUser,
+							purchasedLevelIds: Array.from(
+								new Set([...initialUser.purchasedLevelIds, ...prev.purchasedLevelIds]),
+							),
+						}
+					: initialUser;
 			onUserChange?.(next);
 			return next;
 		});
 	}, [initialUser, onUserChange]);
+
+	useEffect(() => {
+		if (user.isGuest || user.id === "guest-1") {
+			return;
+		}
+		let cancelled = false;
+		const userId = user.id;
+		const hydratePurchasedLevels = async () => {
+			try {
+				const response = await fetch(
+					`/api/levels/purchases?userExternalId=${encodeURIComponent(userId)}`,
+				);
+				const payload = (await response
+					.json()
+					.catch(() => null)) as PurchasedLevelsApiPayload | null;
+				if (cancelled || !response.ok || !payload?.success) {
+					return;
+				}
+				const purchasedLevelIds = Array.isArray(payload.levelCodes)
+					? payload.levelCodes.filter((levelCode): levelCode is string => {
+							return typeof levelCode === "string" && levelCode.trim().length > 0;
+						})
+					: [];
+
+				setUser((prev) => {
+					if (prev.id !== userId) {
+						return prev;
+					}
+					const mergedPurchasedLevelIds = Array.from(
+						new Set([...prev.purchasedLevelIds, ...purchasedLevelIds]),
+					);
+					if (mergedPurchasedLevelIds.length === prev.purchasedLevelIds.length) {
+						return prev;
+					}
+					const next: UserState = {
+						...prev,
+						purchasedLevelIds: mergedPurchasedLevelIds,
+					};
+					onUserChange?.(next);
+					return next;
+				});
+			} catch {
+				// Ignore hydration errors and keep current local state.
+			}
+		};
+
+		void hydratePurchasedLevels();
+		return () => {
+			cancelled = true;
+		};
+	}, [user.id, user.isGuest, onUserChange]);
 
 	useEffect(() => {
 		let isCancelled = false;
