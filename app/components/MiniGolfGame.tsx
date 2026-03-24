@@ -163,6 +163,12 @@ export function MiniGolfGame({ initialUser, onUserChange }: MiniGolfGameProps) {
 	}, [level.ball.x, level.ball.y]);
 
 	useEffect(() => {
+		// Payment status is scoped to the currently viewed level.
+		setTxState("idle");
+		setTxMessage("");
+	}, [levelIndex]);
+
+	useEffect(() => {
 		const c = canvasRef.current;
 		if (!c) return;
 
